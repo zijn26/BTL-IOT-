@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IoT Backend API Tester</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            padding: 30px;
+        }
+
+        .section {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 25px;
+            border: 1px solid #e9ecef;
+        }
+
+        .section h2 {
+            color: #495057;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+            border-bottom: 2px solid #4facfe;
+            padding-bottom: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+            outline: none;
+            border-color: #4facfe;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(79, 172, 254, 0.4);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #51cf66 0%, #40c057 100%);
+        }
+
+        .btn-warning {
+            background: linear-gradient(135deg, #ffd43b 0%, #fab005 100%);
+        }
+
+        .response-area {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            margin-top: 20px;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .status-success {
+            background-color: #51cf66;
+        }
+
+        .status-error {
+            background-color: #ff6b6b;
+        }
+
+        .status-warning {
+            background-color: #ffd43b;
+        }
+
+        .token-display {
+            background: #e3f2fd;
+            border: 1px solid #2196f3;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            word-break: break-all;
+            font-family: monospace;
+            font-size: 12px;
+        }
+
+        .device-list {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 10px;
+            background: white;
+        }
+
+        .device-item {
+            padding: 10px;
+            border-bottom: 1px solid #e9ecef;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .device-item:hover {
+            background-color: #f8f9fa;
+        }
+
+        .device-item:last-child {
+            border-bottom: none;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #4facfe;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e9ecef;
+        }
+
+        .tab {
+            padding: 12px 25px;
+            cursor: pointer;
+            border: none;
+            background: none;
+            font-size: 16px;
+            font-weight: 600;
+            color: #6c757d;
+            transition: color 0.3s;
+        }
+
+        .tab.active {
+            color: #4facfe;
+            border-bottom: 2px solid #4facfe;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔧 IoT Backend API Tester</h1>
+            <p>Test toàn bộ API endpoints của IoT Backend</p>
+        </div>
+
+        <div class="main-content">
+            <!-- Authentication Section -->
+            <div class="section">
+                <h2>🔐 Authentication</h2>
+                
+                <div class="tabs">
+                    <button class="tab active" onclick="switchTab('auth', 'register')">Register</button>
+                    <button class="tab" onclick="switchTab('auth', 'login')">Login</button>
+                    <button class="tab" onclick="switchTab('auth', 'profile')">Profile</button>
+                </div>
+
+                <!-- Register Tab -->
+                <div id="register" class="tab-content active">
+                    <div class="form-group">
+                        <label>Email:</label>
+                        <input type="email" id="regEmail" placeholder="test@example.com">
+                    </div>
+                    <div class="form-group">
+                        <label>Tên:</label>
+                        <input type="text" id="regName" placeholder="Test User">
+                    </div>
+                    <div class="form-group">
+                        <label>Mật khẩu:</label>
+                        <input type="password" id="regPassword" placeholder="password123">
+                    </div>
+                    <button class="btn" onclick="registerUser()">Đăng ký</button>
+                </div>
+
+                <!-- Login Tab -->
+                <div id="login" class="tab-content">
+                    <div class="form-group">
+                        <label>Email:</label>
+                        <input type="email" id="loginEmail" placeholder="test@example.com">
+                    </div>
+                    <div class="form-group">
+                        <label>Mật khẩu:</label>
+                        <input type="password" id="loginPassword" placeholder="password123">
+                    </div>
+                    <button class="btn" onclick="loginUser()">Đăng nhập</button>
+                </div>
+
+                <!-- Profile Tab -->
+                <div id="profile" class="tab-content">
+                    <button class="btn" onclick="getCurrentUser()">Lấy thông tin user</button>
+                    <button class="btn btn-danger" onclick="logout()">Đăng xuất</button>
+                </div>
+
+                <div class="token-display" id="tokenDisplay" style="display: none;">
+                    <strong>Access Token:</strong><br>
+                    <span id="accessToken"></span>
+                </div>
+            </div>
+
+            <!-- Device Management Section -->
+            <div class="section">
+                <h2>📱 Device Management</h2>
+                
+                <div class="tabs">
+                    <button class="tab active" onclick="switchTab('device', 'register')">Register Device</button>
+                    <button class="tab" onclick="switchTab('device', 'list')">Device List</button>
+                    <button class="tab" onclick="switchTab('device', 'config')">Config Pins</button>
+                </div>
+
+                <!-- Register Device Tab -->
+                <div id="device-register" class="tab-content active">
+                    <div class="form-group">
+                        <label>Tên thiết bị:</label>
+                        <input type="text" id="deviceName" placeholder="ESP32 Device">
+                    </div>
+                    <div class="form-group">
+                        <label>Loại thiết bị:</label>
+                        <select id="deviceType">
+                            <option value="MASTER">MASTER</option>
+                            <option value="SLAVE">SLAVE</option>
+                            <option value="GUEST">GUEST</option>
+                        </select>
+                    </div>
+                    <button class="btn" onclick="registerDevice()">Đăng ký thiết bị</button>
+                </div>
+
+                <!-- Device List Tab -->
+                <div id="device-list" class="tab-content">
+                    <button class="btn" onclick="getDevices()">Lấy danh sách thiết bị</button>
+                    <div class="device-list" id="deviceList"></div>
+                </div>
+
+                <!-- Config Pins Tab -->
+                <div id="device-config" class="tab-content">
+                    <div class="form-group">
+                        <label>Device Token:</label>
+                        <input type="text" id="configDeviceToken" placeholder="Nhập device token">
+                    </div>
+                    <div class="form-group">
+                        <label>Pin Configuration (JSON):</label>
+                        <textarea id="pinConfig" rows="8" placeholder='[
+  {
+    "virtual_pin": 1,
+    "pin_label": "Temperature Sensor",
+    "pin_type": "INPUT",
+    "data_type": "float",
+    "ai_keywords": "temperature, temp"
+  },
+  {
+    "virtual_pin": 2,
+    "pin_label": "LED Control",
+    "pin_type": "OUTPUT",
+    "data_type": "boolean",
+    "ai_keywords": "led, light"
+  }
+]'></textarea>
+                    </div>
+                    <button class="btn" onclick="configDevicePins()">Cấu hình pins</button>
+                    <button class="btn btn-warning" onclick="getDeviceConfig()">Lấy config hiện tại</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Response Area -->
+        <div class="section" style="margin: 30px;">
+            <h2>📋 API Response</h2>
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p>Đang xử lý...</p>
+            </div>
+            <div class="response-area" id="responseArea">Chọn một action để bắt đầu test API...</div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let currentToken = null;
+        let currentUser = null;
+        const API_BASE_URL = 'http://localhost:8000';
+
+        // Tab switching
+        function switchTab(section, tabName) {
+            // Hide all tabs in section
+            const sectionElement = document.querySelector(`#${section}`);
+            if (sectionElement) {
+                const tabs = sectionElement.querySelectorAll('.tab-content');
+                tabs.forEach(tab => tab.classList.remove('active'));
+                
+                const tabButtons = sectionElement.querySelectorAll('.tab');
+                tabButtons.forEach(btn => btn.classList.remove('active'));
+            }
+
+            // Show selected tab
+            const targetTab = document.getElementById(tabName);
+            if (targetTab) {
+                targetTab.classList.add('active');
+            }
+
+            // Activate corresponding tab button
+            const targetButton = event.target;
+            if (targetButton) {
+                targetButton.classList.add('active');
+            }
+        }
+
+        // Utility functions
+        function showLoading() {
+            document.getElementById('loading').style.display = 'block';
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        function showResponse(data, status = 'success') {
+            hideLoading();
+            const responseArea = document.getElementById('responseArea');
+            const statusClass = status === 'success' ? 'status-success' : 
+                              status === 'error' ? 'status-error' : 'status-warning';
+            
+            responseArea.innerHTML = `<span class="status-indicator ${statusClass}"></span>${JSON.stringify(data, null, 2)}`;
+        }
+
+        function getAuthHeaders() {
+            if (!currentToken) {
+                throw new Error('Chưa đăng nhập! Vui lòng đăng nhập trước.');
+            }
+            console.log(currentToken);
+            return {
+                'Authorization': `Bearer ${currentToken}`,
+                'Content-Type': 'application/json'
+            };
+        }
+
+        // Authentication functions
+        async function registerUser() {
+            try {
+                showLoading();
+                const userData = {
+                    email: document.getElementById('regEmail').value,
+                    name: document.getElementById('regName').value,
+                    password: document.getElementById('regPassword').value
+                };
+
+                const response = await fetch(`${API_BASE_URL}/auth/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(userData)
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    currentToken = data.access_token;
+                    currentUser = data.user;
+                    document.getElementById('accessToken').textContent = currentToken;
+                    document.getElementById('tokenDisplay').style.display = 'block';
+                    showResponse(data, 'success');
+                } else {
+                    showResponse(data, 'error');
+                }
+            } catch (error) {
+                showResponse({ error: error.message }, 'error');
+            }
+        }
+
+        async function loginUser() {
+            try {
+                showLoading();
+                const loginData = {
+                    email: document.getElementById('loginEmail').value,
+                    password: document.getElementById('loginPassword').value
+                };
+
+                const response = await fetch(`${API_BASE_URL}/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(loginData)
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    currentToken = data.access_token;
+                    currentUser = data.user;
+                    document.getElementById('accessToken').textContent = currentToken;
+                    document.getElementById('tokenDisplay').style.display = 'block';
+                    showResponse(data, 'success');
+                } else {
+                    showResponse(data, 'error');
+                }
+            } catch (error) {
+                showResponse({ error: error.message }, 'error');
+            }
+        }
+
+        async function getCurrentUser() {
+            try {
+                showLoading();
+                const response = await fetch(`${API_BASE_URL}/auth/me`, {
+                    headers: getAuthHeaders()
+                });
+
+                const data = await response.json();
+                showResponse(data, response.ok ? 'success' : 'error');
+            } catch (error) {
+                showResponse({ error: error.message }, 'error');
+            }
+        }
+
+        function logout() {
+            currentToken = null;
+            currentUser = null;
+            document.getElementById('tokenDisplay').style.display = 'none';
+            showResponse({ message: 'Đã đăng xuất thành công' }, 'success');
+        }
+
+        // Device functions
+        async function registerDevice() {
+            try {
+                showLoading();
+                const deviceData = {
+                    device_name: document.getElementById('deviceName').value,
+                    device_type: document.getElementById('deviceType').value
+                };
+
+                const response = await fetch(`${API_BASE_URL}/devices/registerDevide`, {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify(deviceData)
+                });
+
+                const data = await response.json();
+                showResponse(data, response.ok ? 'success' : 'error');
+            } catch (error) {
+                showResponse({ error: error.message }, 'error');
+            }
+        }
+
+        async function getDevices() {
+            try {
+                showLoading();
+                const response = await fetch(`${API_BASE_URL}/devices/getDevices`, {
+                    headers: getAuthHeaders()
+                });
+
+                const data = await response.json();
+                
+                if (response.ok && data.devices) {
+                    displayDeviceList(data.devices);
+                }
+                showResponse(data, response.ok ? 'success' : 'error');
+            } catch (error) {
+                showResponse({ error: error.message }, 'error');
+            }
+        }
+
+        function displayDeviceList(devices) {
+            const deviceList = document.getElementById('deviceList');
+            deviceList.innerHTML = '';
+            
+            devices.forEach(device => {
+                const deviceItem = document.createElement('div');
+                deviceItem.className = 'device-item';
+                deviceItem.innerHTML = `
+                    <strong>${device.device_name}</strong><br>
+                    <small>Type: ${device.device_type} | Token: ${device.device_token}</small>
+                `;
+                deviceItem.onclick = () => {
+                    document.getElementById('configDeviceToken').value = device.device_token;
+                    switchTab('device', 'config');
+                };
+                deviceList.appendChild(deviceItem);
+            });
+        }
+
+        async function configDevicePins() {
+            try {
+                showLoading();
+                const deviceToken = document.getElementById('configDeviceToken').value;
+                const pinConfigText = document.getElementById('pinConfig').value;
+                
+                let pins;
+                try {
+                    pins = JSON.parse(pinConfigText);
+                } catch (e) {
+                    throw new Error('JSON không hợp lệ! Vui lòng kiểm tra lại format.');
+                }
+
+                const configData = {
+                    device_token: deviceToken,
+                    pins: pins
+                };
+
+                const response = await fetch(`${API_BASE_URL}/devices/configPin`, {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify(configData)
+                });
+
+                const data = await response.json();
+                showResponse(data, response.ok ? 'success' : 'error');
+            } catch (error) {
+                showResponse({ error: error.message }, 'error');
+            }
+        }
+
+        async function getDeviceConfig() {
+            try {
+                showLoading();
+                const deviceToken = document.getElementById('configDeviceToken').value;
+                
+                const response = await fetch(`${API_BASE_URL}/devices/${deviceToken}/getConfigPin`, {
+                    headers: getAuthHeaders()
+                });
+
+                const data = await response.json();
+                showResponse(data, response.ok ? 'success' : 'error');
+            } catch (error) {
+                showResponse({ error: error.message }, 'error');
+            }
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            showResponse({ 
+                message: 'IoT Backend API Tester đã sẵn sàng!',
+                instructions: [
+                    '1. Đăng ký hoặc đăng nhập để lấy access token',
+                    '2. Đăng ký thiết bị mới',
+                    '3. Cấu hình pins cho thiết bị',
+                    '4. Test các API endpoints khác'
+                ]
+            }, 'success');
+        });
+    </script>
+</body>
+</html>
