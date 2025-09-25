@@ -60,7 +60,7 @@ class StatsHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/stats":
             qs = parse_qs(parsed.query or "")
-            include_coap = str(qs.get("includeCoap", ["0"][0])[0]).strip() == "1"
+            include_coap = str(qs.get("includeCoap", ["0"])[0]).strip() == "1"
             # Build MQTT payload from state
             with STATE_LOCK:
                 mqtt_payload = {
