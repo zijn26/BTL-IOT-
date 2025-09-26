@@ -16,8 +16,8 @@ def build_message(message_id: int) -> str:
 
 
 def main() -> None:
-    broker_host = "127.0.0.1"
-    broker_port = 1883
+    broker_host = "192.168.3.4"
+    broker_port = 20904
     topic = "test/demo"
     client_id = "publisher_20_msgs"
 

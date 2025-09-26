@@ -2,13 +2,13 @@ import client_MQTT_broker
 import json
 import threading
 import time
-import random
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
 
 # Global state for metrics and packets
-PACKET_LIMIT = 20
+PACKET_LIMIT = 1000  # Increase to allow more data collection for UI display
+UI_DISPLAY_LIMIT = 200  # Maximum messages to display in UI
 STATE_LOCK = threading.Lock()
 
 MQTT_STATE = {
@@ -19,8 +19,14 @@ MQTT_STATE = {
     "done": False,
 }
 
-# Simulation flag (default to real data collection)
-USE_SIMULATION = False
+
+"""
+Global MQTT runtime state
+- MQTT_TOPIC: current subscribed topic for display and default
+- MQTT_CLIENT: active client to allow dynamic subscribe via HTTP API
+"""
+MQTT_TOPIC = "test/demo"
+MQTT_CLIENT = None
 
 COAP_STATE = {
     "packets": [],
@@ -64,12 +70,12 @@ class StatsHandler(BaseHTTPRequestHandler):
             # Build MQTT payload from state
             with STATE_LOCK:
                 mqtt_payload = {
-                    "packets": MQTT_STATE["packets"],
-                    "total_bytes": MQTT_STATE["total_bytes"],
-                    "total_tx_time": MQTT_STATE["total_tx_time"],
-                    "received_count": MQTT_STATE["received_count"],
-                    "done": MQTT_STATE["done"],
-                    "aggregate_rate_bps": (MQTT_STATE["total_bytes"] / MQTT_STATE["total_tx_time"]) if MQTT_STATE["total_tx_time"] > 0 else 0.0,
+                        "packets": MQTT_STATE["packets"],
+                        "total_bytes": MQTT_STATE["total_bytes"],
+                        "total_tx_time": MQTT_STATE["total_tx_time"],
+                        "received_count": MQTT_STATE["received_count"],
+                        "done": MQTT_STATE["done"],
+                        "aggregate_rate_bps": (MQTT_STATE["total_bytes"] / MQTT_STATE["total_tx_time"]) if MQTT_STATE["total_tx_time"] > 0 else 0.0,
                 }
             # Read CoAP data directly from embedded CoAP server resources if requested
             if include_coap and (COAP_SERVER is not None):
@@ -90,13 +96,25 @@ class StatsHandler(BaseHTTPRequestHandler):
                                         continue
                                     message_bytes = len(msg_str.encode("utf-8"))
                                     start_time = None
-                                    recv_time_val = now
+                                    # Sử dụng thời gian thực tế nhận được gói tin từ CoAP server
+                                    if isinstance(item, dict) and "recv_time" in item:
+                                        try:
+                                            recv_time_val = float(item["recv_time"])
+                                        except Exception:
+                                            recv_time_val = now
+                                    else:
+                                        recv_time_val = now
                                     if isinstance(item, dict):
-                                        if "time" in item:
-                                            try:
-                                                start_time = float(item["time"])
-                                            except Exception:
-                                                start_time = None
+                                        # Use same time parsing logic as MQTT - ONLY use timestamp_ms
+                                        try:
+                                            if "timestamp_ms" in item:
+                                                # timestamp_ms is already in milliseconds, convert to seconds
+                                                start_time = float(item["timestamp_ms"]) / 1000.0
+                                            else:
+                                                # Fallback to current time if no timestamp_ms
+                                                start_time = recv_time_val
+                                        except Exception:
+                                            start_time = recv_time_val
                                         if "recv_time" in item:
                                             try:
                                                 recv_time_val = float(item["recv_time"])
@@ -105,6 +123,12 @@ class StatsHandler(BaseHTTPRequestHandler):
                                     tx_time = 0.0
                                     if start_time is not None:
                                         tx_time = max(0.0, recv_time_val - start_time)
+
+                                    # Debug output for CoAP time calculation
+                                    timestamp_ms_value = 0
+                                    if isinstance(item, dict) and "timestamp_ms" in item:
+                                        timestamp_ms_value = float(item["timestamp_ms"])
+                                    print(f"[CoAP DEBUG] path={path}, timestamp_ms={timestamp_ms_value:.0f}ms, start_time={start_time:.6f}s, recv_time={recv_time_val:.6f}s, tx_time={tx_time:.6f}s")
 
                                     received_count += 1
                                     packets.append({
@@ -130,12 +154,12 @@ class StatsHandler(BaseHTTPRequestHandler):
                 except Exception:
                     with STATE_LOCK:
                         coap_payload = {
-                            "packets": COAP_STATE["packets"],
-                            "total_bytes": COAP_STATE["total_bytes"],
-                            "total_tx_time": COAP_STATE["total_tx_time"],
-                            "received_count": COAP_STATE["received_count"],
-                            "done": COAP_STATE["done"],
-                            "aggregate_rate_bps": (COAP_STATE["total_bytes"] / COAP_STATE["total_tx_time"]) if COAP_STATE["total_tx_time"] > 0 else 0.0,
+                        "packets": COAP_STATE["packets"],
+                        "total_bytes": COAP_STATE["total_bytes"],
+                        "total_tx_time": COAP_STATE["total_tx_time"],
+                        "received_count": COAP_STATE["received_count"],
+                        "done": COAP_STATE["done"],
+                        "aggregate_rate_bps": (COAP_STATE["total_bytes"] / COAP_STATE["total_tx_time"]) if COAP_STATE["total_tx_time"] > 0 else 0.0,
                         }
             else:
                 with STATE_LOCK:
@@ -152,9 +176,11 @@ class StatsHandler(BaseHTTPRequestHandler):
             payload = {
                 "mqtt": mqtt_payload,
                 "coap": coap_payload,
-                "expected_count": PACKET_LIMIT,
+                    "expected_count": PACKET_LIMIT,
                 "coap_client": COAP_CLIENT_CONFIG,
-            }
+                "mqtt_current_topic": MQTT_TOPIC,
+                "ui_display_limit": UI_DISPLAY_LIMIT,
+                }
             data = json.dumps(payload).encode("utf-8")
             self._set_common_headers(200, "application/json; charset=utf-8")
             self.wfile.write(data)
@@ -193,13 +219,26 @@ class StatsHandler(BaseHTTPRequestHandler):
                             continue
                         message_bytes = len(msg_str.encode("utf-8"))
                         start_time = None
-                        recv_time_val = now
+                        # Sử dụng thời gian thực tế nhận được gói tin từ CoAP server
+                        if isinstance(item, dict) and "recv_time" in item:
+                            try:
+                                recv_time_val = float(item["recv_time"])
+                            except Exception:
+                                recv_time_val = now
+                        else:
+                            recv_time_val = now
                         if isinstance(item, dict):
-                            if "time" in item:
-                                try:
-                                    start_time = float(item["time"])
-                                except Exception:
-                                    start_time = None
+                            # Use same time parsing logic as main stats - ONLY use timestamp_ms
+                            try:
+                                if "timestamp_ms" in item:
+                                    # timestamp_ms is already in milliseconds, convert to seconds
+                                    start_time = float(item["timestamp_ms"]) / 1000.0
+                                else:
+                                    # Fallback to current time if no timestamp_ms
+                                    start_time = recv_time_val
+                            except Exception:
+                                start_time = recv_time_val
+                            
                             if "recv_time" in item:
                                 try:
                                     recv_time_val = float(item["recv_time"])
@@ -238,40 +277,41 @@ class StatsHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
-        if parsed.path == "/mode":
-            # Simulation removed; keep endpoint to ensure UI compatibility
-            length = int(self.headers.get('Content-Length', '0') or 0)
-            raw = self.rfile.read(length) if length > 0 else b""
+        global MQTT_CLIENT, MQTT_TOPIC
+
+        if parsed.path == "/mqtt_subscribe":
             try:
+                length = int(self.headers.get('Content-Length', '0') or 0)
+                raw = self.rfile.read(length) if length > 0 else b""
                 body = json.loads(raw.decode('utf-8') or "{}")
             except Exception:
                 body = {}
 
-            # Ensure servers are running
-            started = []
-            try:
-                if COAP_SERVER is None:
-                    start_coap_server_bg()
-                    started.append("coap_server")
-            except Exception:
-                pass
-            try:
-                if MQTT_BROKER is None:
-                    # Try to start broker if helper exists; otherwise ignore
-                    try:
-                        start_mqtt_broker_bg()
-                        started.append("mqtt_broker")
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+            new_topic = str(body.get("topic", "")).strip()
+            if not new_topic:
+                self._set_common_headers(400, "application/json; charset=utf-8")
+                self.wfile.write(json.dumps({"ok": False, "error": "empty_topic"}).encode("utf-8"))
+                return
 
-            resp = {"ok": True, "simulation": False, "started": started}
+            ok = False
+            err = None
+            try:
+                if MQTT_CLIENT is not None:
+                    MQTT_CLIENT.subscribe(new_topic)
+                    with STATE_LOCK:
+                        MQTT_TOPIC = new_topic
+                    ok = True
+                else:
+                    err = "mqtt_client_not_ready"
+            except Exception as e:
+                err = f"{e}"
+
+            resp = {"ok": ok, "topic": new_topic, "error": err}
             self._set_common_headers(200, "application/json; charset=utf-8")
             self.wfile.write(json.dumps(resp).encode("utf-8"))
             return
 
-        elif parsed.path == "/coap_command":
+        if parsed.path == "/coap_command":
             try:
                 length = int(self.headers.get('Content-Length', '0') or 0)
                 raw = self.rfile.read(length) if length > 0 else b""
@@ -283,8 +323,8 @@ class StatsHandler(BaseHTTPRequestHandler):
             path = str(body.get("path", "/")).strip() or "/"
             payload = str(body.get("payload", ""))
 
-            host = "127.0.0.1"
-            port = 5683
+            host = "192.168.3.4"
+            port = 2606
 
             try:
                 from CoAPClient import SimpleCoAPClient
@@ -322,6 +362,41 @@ class StatsHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(out).encode("utf-8"))
             return
 
+        if parsed.path == "/mqtt_publish":
+            try:
+                length = int(self.headers.get('Content-Length', '0') or 0)
+                raw = self.rfile.read(length) if length > 0 else b""
+                body = json.loads(raw.decode('utf-8') or "{}")
+            except Exception:
+                body = {}
+
+            topic = str(body.get("topic", "")).strip()
+            payload = body.get("payload", "")
+            if not topic:
+                topic = MQTT_TOPIC
+            try:
+                if not isinstance(payload, str):
+                    payload = json.dumps(payload, ensure_ascii=False)
+            except Exception:
+                payload = str(payload)
+
+            ok = False
+            err = None
+            try:
+                if MQTT_CLIENT is not None and getattr(MQTT_CLIENT, 'connected', False):
+                    ok = bool(MQTT_CLIENT.publish(topic, payload))
+                    if not ok:
+                        err = "publish_failed"
+                else:
+                    err = "mqtt_client_not_ready"
+            except Exception as e:
+                err = f"{e}"
+
+            resp = {"ok": ok, "topic": topic, "payload_len": len(payload.encode('utf-8')) if isinstance(payload, str) else 0, "error": err}
+            self._set_common_headers(200, "application/json; charset=utf-8")
+            self.wfile.write(json.dumps(resp).encode("utf-8"))
+            return
+
         self._set_common_headers(404, "text/plain; charset=utf-8")
         self.wfile.write(b"Not Found")
 
@@ -332,7 +407,7 @@ def run_http_server(host="127.0.0.1", port=8080):
     httpd.serve_forever()
 
 
-def mqtt_collect_loop(broker_host: str, broker_port: int, topic: str, client_id: str):
+def mqtt_collect_loop(broker_host: str, broker_port: int, topic: str, client_id: str, collect_packets: dict):
     client = client_MQTT_broker.SimpleMQTTClient(
         broker_host=broker_host, broker_port=broker_port, client_id=client_id
     )
@@ -343,30 +418,65 @@ def mqtt_collect_loop(broker_host: str, broker_port: int, topic: str, client_id:
 
     client.subscribe(topic)
 
+    # expose client for dynamic subscription
+    try:
+        global MQTT_CLIENT, MQTT_TOPIC
+        MQTT_CLIENT = client
+        with STATE_LOCK:
+            MQTT_TOPIC = topic
+    except Exception:
+        pass
+
     def on_message(msg_topic: str, msg_str: str):
         local_recv_time = time.time()
         message_bytes = len(msg_str.encode("utf-8"))
         send_time = local_recv_time
         recv_time_value = local_recv_time
         
-        def normalize_epoch(value: float) -> float:
-            # Heuristic normalization: handle ns/us/ms epochs into seconds
-            try:
-                v = float(value)
-            except Exception:
-                return local_recv_time
-            if v > 1e14:   # nanoseconds
-                return v / 1e9
-            if v > 1e12:   # microseconds
-                return v / 1e6
-            if v > 1e11:   # milliseconds
-                return v / 1e3
-            return v
+        def normalize_epoch(value) -> float:
+             # Handle different time formats from client
+             try:
+                 # If it's already a number, use existing logic
+                 if isinstance(value, (int, float)):
+                     v = float(value)
+                     if v > 1e14:   # nanoseconds
+                         return v / 1e9
+                     if v > 1e12:   # microseconds
+                         return v / 1e6
+                     if v > 1e11:   # milliseconds
+                         return v / 1e3
+                     return v
+                 
+                 # If it's a string, try to parse HH:MM:SS format
+                 if isinstance(value, str):
+                     time_str = value.strip()
+                     # Check if it's HH:MM:SS format (e.g., "14:30:25")
+                     if ':' in time_str and len(time_str.split(':')) == 3:
+                         try:
+                             from datetime import datetime
+                             # Parse as time today
+                             today = datetime.now().date()
+                             time_obj = datetime.strptime(f"{today} {time_str}", "%Y-%m-%d %H:%M:%S")
+                             return time_obj.timestamp()
+                         except Exception:
+                             pass
+                     
+                     # Try parsing as float (epoch timestamp)
+                     return float(time_str)
+                     
+             except Exception:
+                 pass
+             return local_recv_time
         try:
             obj = json.loads(msg_str)
-            # Extract sender time and (optional) server-recorded recv_time
+            # Extract sender time - ONLY use timestamp_ms for consistency
             try:
-                send_time = normalize_epoch(obj.get("time", obj.get("start_time", local_recv_time)))
+                if "timestamp_ms" in obj:
+                    # timestamp_ms is already in milliseconds, convert to seconds
+                    send_time = float(obj.get("timestamp_ms")) / 1000.0
+                else:
+                    # Fallback to current time if no timestamp_ms
+                    send_time = local_recv_time
             except Exception:
                 send_time = local_recv_time
             try:
@@ -380,6 +490,20 @@ def mqtt_collect_loop(broker_host: str, broker_port: int, topic: str, client_id:
         # Cap to avoid extreme outliers if clocks are skewed
         if tx_time > 30.0:
             tx_time = 30.0
+
+        # Debug output for time calculation verification
+        try:
+            obj = json.loads(msg_str)
+            if "timestamp_ms" in obj:
+                time_source = "timestamp_ms"
+                timestamp_ms_value = float(obj.get("timestamp_ms"))
+            else:
+                time_source = "fallback"
+                timestamp_ms_value = 0
+        except:
+            time_source = "error"
+            timestamp_ms_value = 0
+        print(f"[DEBUG] timestamp_ms={timestamp_ms_value:.0f}ms, send_time={send_time:.6f}s, recv_time={recv_time_value:.6f}s, tx_time={tx_time:.6f}s")
 
         with STATE_LOCK:
             if MQTT_STATE["done"]:
@@ -414,94 +538,6 @@ def mqtt_collect_loop(broker_host: str, broker_port: int, topic: str, client_id:
         time.sleep(0.1)
 
 
-def mqtt_simulation_collect_loop(topic: str):
-    """Generate fake MQTT packets and populate MQTT_STATE."""
-    fake_messages = []
-    base_id = int(time.time())
-    for i in range(1, PACKET_LIMIT + 1):
-        payload = {
-            "id": base_id + i,
-            "data": round(random.uniform(0.0, 100.0), 3),
-            "time": time.time(),
-        }
-        fake_messages.append(json.dumps(payload))
-
-    for i, msg_str in enumerate(fake_messages, start=1):
-        network_delay = random.uniform(0.03, 0.25)
-        time.sleep(network_delay)
-        try:
-            recv_time = time.time()
-            obj = json.loads(msg_str)
-            start_time = float(obj.get("time", obj.get("start_time", recv_time)))
-            tx_time = max(0.0, recv_time - start_time)
-            message_bytes = len(msg_str.encode("utf-8"))
-
-            with STATE_LOCK:
-                index = MQTT_STATE["received_count"] + 1
-                packet_entry = {
-                    "index": index,
-                    "topic": topic,
-                    "message_str": msg_str,
-                    "message_bytes": message_bytes,
-                    "start_time": start_time,
-                    "recv_time": recv_time,
-                    "tx_time": tx_time,
-                }
-                MQTT_STATE["packets"].append(packet_entry)
-                MQTT_STATE["total_bytes"] += message_bytes
-                MQTT_STATE["total_tx_time"] += tx_time
-                MQTT_STATE["received_count"] = index
-                if MQTT_STATE["received_count"] >= PACKET_LIMIT:
-                    MQTT_STATE["done"] = True
-
-            print(f"[MQTT sim #{index}] topic={topic} bytes={message_bytes} tx_time={tx_time:.6f}s")
-        except Exception as e:
-            print(f"Error in MQTT simulation: {e}")
-
-
-def coap_simulation_collect_loop(resource: str = "test/demo"):
-    """Generate fake CoAP-like packets and populate COAP_STATE."""
-    fake_messages = []
-    base_id = int(time.time())
-    for i in range(1, PACKET_LIMIT + 1):
-        payload = {
-            "id": base_id + i,
-            "data": round(random.uniform(0.0, 100.0), 3),
-            "time": time.time(),
-        }
-        fake_messages.append(json.dumps(payload))
-
-    for i, msg_str in enumerate(fake_messages, start=1):
-        network_delay = random.uniform(0.04, 0.30)
-        time.sleep(network_delay)
-        try:
-            recv_time = time.time()
-            obj = json.loads(msg_str)
-            start_time = float(obj.get("time", obj.get("start_time", recv_time)))
-            tx_time = max(0.0, recv_time - start_time)
-            message_bytes = len(msg_str.encode("utf-8"))
-
-            with STATE_LOCK:
-                index = COAP_STATE["received_count"] + 1
-                packet_entry = {
-                    "index": index,
-                    "resource": resource,
-                    "message_str": msg_str,
-                    "message_bytes": message_bytes,
-                    "start_time": start_time,
-                    "recv_time": recv_time,
-                    "tx_time": tx_time,
-                }
-                COAP_STATE["packets"].append(packet_entry)
-                COAP_STATE["total_bytes"] += message_bytes
-                COAP_STATE["total_tx_time"] += tx_time
-                COAP_STATE["received_count"] = index
-                if COAP_STATE["received_count"] >= PACKET_LIMIT:
-                    COAP_STATE["done"] = True
-
-            print(f"[CoAP sim #{index}] resource={resource} bytes={message_bytes} tx_time={tx_time:.6f}s")
-        except Exception as e:
-            print(f"Error in CoAP simulation: {e}")
 
 
 # Try to import and define CoAP server starter (best-effort)
@@ -510,14 +546,14 @@ try:
     def start_coap_server_bg():
         try:
             global COAP_SERVER
-            COAP_SERVER = SimpleCoAPServer()
+            COAP_SERVER = SimpleCoAPServer("192.168.3.4",2606)
             t = threading.Thread(target=COAP_SERVER.start, daemon=True)
             t.start()
             print("CoAP server thread started.")
         except Exception as e:
             print(f"CoAP server failed to start: {e}")
 except Exception as e:
-    print(f"CoAP server import failed: {e}")
+        print(f"CoAP server import failed: {e}")
 
 # Optional MQTT broker helper (suppress if unavailable)
 try:
@@ -563,10 +599,11 @@ INDEX_HTML = """
     let autoCoap = false;
 
     function renderPanel(kind, data) {
-      document.getElementById(kind+'-count').textContent = data.received_count;
-      document.getElementById(kind+'-bytes').textContent = data.total_bytes;
-      document.getElementById(kind+'-totaltime').textContent = data.total_tx_time.toFixed(6);
-      document.getElementById(kind+'-aggrate').textContent = data.aggregate_rate_bps.toFixed(2);
+      console.log(`[DEBUG] renderPanel(${kind}):`, data);
+      document.getElementById(kind+'-count').textContent = data.received_count || 0;
+      document.getElementById(kind+'-bytes').textContent = data.total_bytes || 0;
+      document.getElementById(kind+'-totaltime').textContent = (data.total_tx_time || 0).toFixed(6);
+      document.getElementById(kind+'-aggrate').textContent = (data.aggregate_rate_bps || 0).toFixed(2);
 
       const labels = data.packets.map(p => p.index);
       const bytes = data.packets.map(p => p.message_bytes);
@@ -580,7 +617,7 @@ INDEX_HTML = """
     // Keep UI responsive if Chart.js CDN fails
     return;
   }
-  if (!chart) {
+      if (!chart) {
         const ctx = document.getElementById(chartId).getContext('2d');
         chart = new Chart(ctx, {
           type: 'line',
@@ -625,15 +662,44 @@ INDEX_HTML = """
       try {
         const res = await fetch(`/stats?includeCoap=${autoCoap ? '1' : '0'}`, { cache: 'no-store' });
         if (!res.ok) { setTimeout(fetchStats, 1000); return; }
-        const all = await res.json();
+      const all = await res.json();
 
         const expEl = document.getElementById('exp');
         if (expEl) expEl.textContent = all.expected_count;
-        if (all && all.mqtt) renderPanel('mqtt', all.mqtt);
+        const curTopicEl = document.getElementById('mqttCurrentTopic');
+        if (curTopicEl && all && all.mqtt_current_topic) curTopicEl.textContent = all.mqtt_current_topic;
+        const limitEl = document.getElementById('displayLimitText');
+        if (limitEl && all && all.ui_display_limit) limitEl.textContent = all.ui_display_limit;
+        if (all && all.mqtt) {
+      renderPanel('mqtt', all.mqtt);
+          // Update message table
+          try {
+            const curTopic = curTopicEl?.textContent || '';
+            const tbody = document.getElementById('messageTableBody');
+            if (tbody && Array.isArray(all.mqtt.packets)) {
+              const displayLimit = all.ui_display_limit || 200;
+              const items = all.mqtt.packets
+                .slice(-displayLimit)  // Show last N messages based on UI_DISPLAY_LIMIT
+                .reverse(); // newest first
+              if (items.length > 0) {
+                tbody.innerHTML = items.map(p => 
+                  `<tr><td>${p.index}</td><td>${p.topic}</td><td style=\"word-break:break-all;\">${p.message_str}</td></tr>`
+                ).join('');
+                try {
+                  // auto-scroll to bottom of table body container
+                  const parent = tbody.parentElement;
+                  if (parent) parent.scrollTop = parent.scrollHeight;
+                } catch (e) {}
+              } else {
+                tbody.innerHTML = '<tr><td colspan="3" style="padding:8px; text-align:center; color:#666;">No messages for this topic</td></tr>';
+              }
+            }
+          } catch (e) {}
+        }
         if (autoCoap && all && all.coap) renderPanel('coap', all.coap);
 
-        const shouldPoll = (!all.mqtt || !all.mqtt.done) || autoCoap;
-        if (shouldPoll) setTimeout(fetchStats, 500);
+        const intervalMs = (all && all.mqtt && all.mqtt.done && !autoCoap) ? 2000 : 500;
+        setTimeout(fetchStats, intervalMs);
       } catch (e) {
         setTimeout(fetchStats, 1000);
       }
@@ -694,6 +760,47 @@ INDEX_HTML = """
       if (autoCb) autoCb.addEventListener('change', toggleAutoCoap);
     const sendBtn = document.getElementById('coapCmdSend');
     if (sendBtn) sendBtn.addEventListener('click', sendCoapCommand);
+    const subBtn = document.getElementById('mqttSubscribeBtn');
+    if (subBtn) subBtn.addEventListener('click', async () => {
+      const input = document.getElementById('mqttNewTopic');
+      const msg = document.getElementById('mqttSubMsg');
+      msg.textContent = '';
+      const topic = (input?.value || '').trim();
+      if (!topic) { msg.textContent = 'Topic is empty'; return; }
+      try {
+        const res = await fetch('/mqtt_subscribe', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topic })
+        });
+        const out = await res.json();
+        if (out.ok) {
+          document.getElementById('mqttCurrentTopic').textContent = out.topic || topic;
+          msg.textContent = 'Subscribed';
+        } else {
+          msg.textContent = 'Failed: ' + (out.error || 'unknown');
+        }
+      } catch (e) { msg.textContent = 'Error'; }
+    });
+    const pubBtn = document.getElementById('pubSend');
+    if (pubBtn) pubBtn.addEventListener('click', async () => {
+      const topicEl = document.getElementById('pubTopic');
+      const payloadEl = document.getElementById('pubPayload');
+      const statusEl = document.getElementById('pubStatus');
+      statusEl.textContent = '';
+      let payload;
+      const raw = payloadEl?.value ?? '';
+      // Try parse JSON; fallback to string
+      try { payload = raw ? JSON.parse(raw) : ''; } catch { payload = raw; }
+      const topic = (topicEl?.value || '').trim();
+      try {
+        const res = await fetch('/mqtt_publish', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topic, payload })
+        });
+        const out = await res.json();
+        statusEl.textContent = out.ok ? `OK (${out.payload_len}B)` : `Failed: ${out.error || 'unknown'}`;
+      } catch (e) { statusEl.textContent = 'Error'; }
+    });
       fetchStats();
     });
   </script>
@@ -711,6 +818,8 @@ INDEX_HTML = """
     </label>
   </div>
 
+  
+
   <div class="row" style="margin-top:16px;">
     <div class="col card">
       <h3>MQTT</h3>
@@ -723,6 +832,50 @@ INDEX_HTML = """
         <div><div class="muted">Aggregate Rate (Bytes/s)</div><div id="mqtt-aggrate">0</div></div>
       </div>
       <canvas id="chartMqtt" width="900" height="340" style="margin-top:12px;"></canvas>
+
+      <div class="card" style="margin-top:16px;">
+        <h4>MQTT Subscribe</h4>
+        <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+          <span class="muted">Current:</span>
+          <code id="mqttCurrentTopic">-</code>
+          <input id="mqttNewTopic" placeholder="e.g. sensors/room1" style="min-width:260px;"/>
+          <button id="mqttSubscribeBtn">Subscribe</button>
+          <span id="mqttSubMsg" class="muted"></span>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px;">
+        <h4>Publish Message</h4>
+        <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
+          <span class="muted">Topic:</span>
+          <input id="pubTopic" placeholder="leave empty to use Current" style="width:260px;"/>
+          <button id="pubSend">Publish</button>
+          <span id="pubStatus" class="muted"></span>
+        </div>
+        <div>
+          <div class="muted">Payload (string or JSON)</div>
+          <textarea id="pubPayload" rows="6" style="width:100%;"></textarea>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px;">
+        <h4>Recent Messages</h4>
+        <div class="muted" style="margin-bottom:8px;">Latest <span id="displayLimitText">200</span> messages (all topics)</div>
+        <div style="max-height:220px; overflow:auto; border:1px solid #eee; border-radius:6px;">
+        <table style="width:100%; font-size:12px;">
+          <thead>
+            <tr style="background:#f5f5f5;">
+              <th style="padding:4px; border:1px solid #ddd;">#</th>
+              <th style="padding:4px; border:1px solid #ddd;">Topic</th>
+              <th style="padding:4px; border:1px solid #ddd;">Message</th>
+            </tr>
+          </thead>
+          <tbody id="messageTableBody">
+            <tr><td colspan="3" style="padding:8px; text-align:center; color:#666;">No messages yet</td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
     </div>
 
     <div class="col card">
@@ -764,9 +917,9 @@ INDEX_HTML = """
 """
 def main():
     # Configuration (change as needed)
-    broker_host = "localhost"
-    broker_port = 1883
-    mqtt_topic = "test/demo"
+    broker_host = "192.168.3.4"
+    broker_port = 20904
+    mqtt_topic = MQTT_TOPIC
     client_id = "web_stats_client"
     http_host = "127.0.0.1"
     http_port = 8080
@@ -776,28 +929,22 @@ def main():
     http_thread.start()
 
     # Start embedded CoAP and MQTT broker so clients can connect locally
-    if not USE_SIMULATION:
-        # Start embedded CoAP server to accept incoming data
-        global COAP_SERVER
-        if COAP_SERVER is None:
-            try:
-                start_coap_server_bg()
-            except Exception:
-                pass
-        # Start embedded MQTT broker on localhost:1883
+    # Start embedded CoAP server to accept incoming data
+    global COAP_SERVER
+    if COAP_SERVER is None:
         try:
-            start_mqtt_broker_bg(broker_host, broker_port)
+            start_coap_server_bg()
         except Exception:
             pass
+    # Start embedded MQTT broker on localhost:1883
+    try:
+        start_mqtt_broker_bg(broker_host, broker_port)
+    except Exception:
+        pass
 
-    # Start collectors (simulation or real)
-    if USE_SIMULATION:
-        mqtt_thread = threading.Thread(target=mqtt_simulation_collect_loop, args=(mqtt_topic,), daemon=True)
-        coap_thread = threading.Thread(target=coap_simulation_collect_loop, args=("test/demo",), daemon=True)
-    else:
-        mqtt_thread = threading.Thread(target=mqtt_collect_loop, args=(broker_host, broker_port, mqtt_topic, client_id), daemon=True)
-        # CoAP real: handled by embedded server; no separate CoAP collector thread
-        coap_thread = None
+    # Start real MQTT collector; CoAP handled by embedded server
+    mqtt_thread = threading.Thread(target=mqtt_collect_loop, args=(broker_host, broker_port, mqtt_topic, client_id, {}), daemon=True)
+    coap_thread = None
 
     mqtt_thread.start()
     if coap_thread is not None:

@@ -40,8 +40,8 @@ def send_packets(host: str, port: int, path: str, count: int) -> None:
 
 def main():
     parser = argparse.ArgumentParser(description="CoAP Simulator Client")
-    parser.add_argument("--host", default="127.0.0.1", help="CoAP server host")
-    parser.add_argument("--port", type=int, default=5683, help="CoAP server port")
+    parser.add_argument("--host", default="192.168.3.4", help="CoAP server host")
+    parser.add_argument("--port", type=int, default=2606, help="CoAP server port")
     parser.add_argument("--path", default="/test/demo", help="CoAP resource path")
     parser.add_argument("--count", type=int, default=20, help="Number of packets to send")
     args = parser.parse_args()

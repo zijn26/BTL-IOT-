@@ -341,6 +341,7 @@ class SimpleMQTTBroker:
                     break
 
                 topic = payload[offset:offset+topic_len].decode('utf-8')
+                
                 offset += topic_len + 1  # +1 for QoS byte (skip)
 
                 print(f"📌 Client {client_id} muốn subscribe: '{topic}'")

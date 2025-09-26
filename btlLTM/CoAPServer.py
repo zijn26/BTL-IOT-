@@ -24,6 +24,7 @@ class SimpleCoAPServer:
 
         # Đăng ký default resources
         self.resources = {}
+        # self.resources["/test/demo"] = [{} , { "id" : 1 , sds} , {} , {} ]  # Mảng lưu trữ các item JSON
     # def add_resource(self, path: str, resource ):
     #     """Thêm resource vào server"""
     #     self.resources[path] = resource
