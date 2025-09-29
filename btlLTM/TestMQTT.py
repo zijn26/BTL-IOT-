@@ -19,6 +19,15 @@ MQTT_STATE = {
     "done": False,
 }
 
+# Global state for sensor data (temperature and humidity)
+SENSOR_DATA = {
+    "temperature": None,
+    "humidity": None,
+    "timestamp": None,
+    "sensor_id": None,
+    "history": []  # Store last 50 data points
+}
+
 
 """
 Global MQTT runtime state
@@ -38,7 +47,6 @@ COAP_STATE = {
 
 COAP_SERVER = None
 MQTT_BROKER = None
-COAP_CLIENT_STARTED = False
 COAP_CLIENT_CONFIG = {
     "host": "127.0.0.1",
     "port": 5683,
@@ -64,6 +72,18 @@ class StatsHandler(BaseHTTPRequestHandler):
             self.wfile.write(INDEX_HTML.encode("utf-8"))
             return
 
+        if parsed.path == "/dashboard" or parsed.path == "/temperature_humidity_dashboard.html":
+            try:
+                with open("temperature_humidity_dashboard.html", "r", encoding="utf-8") as f:
+                    dashboard_html = f.read()
+                self._set_common_headers()
+                self.wfile.write(dashboard_html.encode("utf-8"))
+                return
+            except FileNotFoundError:
+                self._set_common_headers(404, "text/plain; charset=utf-8")
+                self.wfile.write(b"Dashboard file not found")
+                return
+
         if parsed.path == "/stats":
             qs = parse_qs(parsed.query or "")
             include_coap = str(qs.get("includeCoap", ["0"])[0]).strip() == "1"
@@ -79,88 +99,7 @@ class StatsHandler(BaseHTTPRequestHandler):
                 }
             # Read CoAP data directly from embedded CoAP server resources if requested
             if include_coap and (COAP_SERVER is not None):
-                try:
-                    now = time.time()
-                    packets = []
-                    total_bytes = 0
-                    total_tx_time = 0.0
-                    received_count = 0
-                    resources = getattr(COAP_SERVER, "resources", {}) or {}
-                    if isinstance(resources, dict):
-                        for path, store in resources.items():
-                            if isinstance(store, list):
-                                for item in store:
-                                    try:
-                                        msg_str = json.dumps(item, ensure_ascii=False)
-                                    except Exception:
-                                        continue
-                                    message_bytes = len(msg_str.encode("utf-8"))
-                                    start_time = None
-                                    # Sử dụng thời gian thực tế nhận được gói tin từ CoAP server
-                                    if isinstance(item, dict) and "recv_time" in item:
-                                        try:
-                                            recv_time_val = float(item["recv_time"])
-                                        except Exception:
-                                            recv_time_val = now
-                                    else:
-                                        recv_time_val = now
-                                    if isinstance(item, dict):
-                                        # Use same time parsing logic as MQTT - ONLY use timestamp_ms
-                                        try:
-                                            if "timestamp_ms" in item:
-                                                # timestamp_ms is already in milliseconds, convert to seconds
-                                                start_time = float(item["timestamp_ms"]) / 1000.0
-                                            else:
-                                                # Fallback to current time if no timestamp_ms
-                                                start_time = recv_time_val
-                                        except Exception:
-                                            start_time = recv_time_val
-                                        if "recv_time" in item:
-                                            try:
-                                                recv_time_val = float(item["recv_time"])
-                                            except Exception:
-                                                recv_time_val = now
-                                    tx_time = 0.0
-                                    if start_time is not None:
-                                        tx_time = max(0.0, recv_time_val - start_time)
-
-                                    # Debug output for CoAP time calculation
-                                    timestamp_ms_value = 0
-                                    if isinstance(item, dict) and "timestamp_ms" in item:
-                                        timestamp_ms_value = float(item["timestamp_ms"])
-                                    print(f"[CoAP DEBUG] path={path}, timestamp_ms={timestamp_ms_value:.0f}ms, start_time={start_time:.6f}s, recv_time={recv_time_val:.6f}s, tx_time={tx_time:.6f}s")
-
-                                    received_count += 1
-                                    packets.append({
-                                        "index": received_count,
-                                        "resource": path,
-                                        "message_str": msg_str,
-                                        "message_bytes": message_bytes,
-                                        "start_time": start_time if start_time is not None else recv_time_val,
-                                        "recv_time": recv_time_val,
-                                        "tx_time": tx_time,
-                                    })
-                                    total_bytes += message_bytes
-                                    total_tx_time += tx_time
-                    coap_payload = {
-                        "packets": packets,
-                        "total_bytes": total_bytes,
-                        "total_tx_time": total_tx_time,
-                        "received_count": received_count,
-                        # Keep running; let UI poll continuously
-                        "done": False,
-                        "aggregate_rate_bps": (total_bytes / total_tx_time) if total_tx_time > 0 else 0.0,
-                    }
-                except Exception:
-                    with STATE_LOCK:
-                        coap_payload = {
-                        "packets": COAP_STATE["packets"],
-                        "total_bytes": COAP_STATE["total_bytes"],
-                        "total_tx_time": COAP_STATE["total_tx_time"],
-                        "received_count": COAP_STATE["received_count"],
-                        "done": COAP_STATE["done"],
-                        "aggregate_rate_bps": (COAP_STATE["total_bytes"] / COAP_STATE["total_tx_time"]) if COAP_STATE["total_tx_time"] > 0 else 0.0,
-                        }
+                coap_payload = _get_coap_data_from_server()
             else:
                 with STATE_LOCK:
                     coap_payload = {
@@ -168,7 +107,6 @@ class StatsHandler(BaseHTTPRequestHandler):
                         "total_bytes": COAP_STATE["total_bytes"],
                         "total_tx_time": COAP_STATE["total_tx_time"],
                         "received_count": COAP_STATE["received_count"],
-                        # When include_coap is false, send zeros to avoid unintended UI updates
                         "done": False,
                         "aggregate_rate_bps": (COAP_STATE["total_bytes"] / COAP_STATE["total_tx_time"]) if (include_coap and COAP_STATE["total_tx_time"] > 0) else 0.0,
                     }
@@ -187,7 +125,7 @@ class StatsHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/coap_fetch":
-            # Query param: limit=X
+            # Use the same logic as main stats but with limit
             qs = parse_qs(parsed.query or "")
             try:
                 limit = int(qs.get("limit", [10])[0])
@@ -195,81 +133,30 @@ class StatsHandler(BaseHTTPRequestHandler):
                     limit = 1
             except Exception:
                 limit = 10
-
-            packets = []
-            total_bytes = 0
-            total_tx_time = 0.0
-            received_count = 0
-            now = time.time()
-
-            if (COAP_SERVER is not None):
-                resources = getattr(COAP_SERVER, "resources", {}) or {}
-                if isinstance(resources, dict):
-                    # Flatten all items with their paths
-                    flat = []
-                    for path, store in resources.items():
-                        if isinstance(store, list):
-                            for item in store:
-                                flat.append((path, item))
-                    # Take the last `limit` items overall
-                    for path, item in flat[-limit:]:
-                        try:
-                            msg_str = json.dumps(item, ensure_ascii=False)
-                        except Exception:
-                            continue
-                        message_bytes = len(msg_str.encode("utf-8"))
-                        start_time = None
-                        # Sử dụng thời gian thực tế nhận được gói tin từ CoAP server
-                        if isinstance(item, dict) and "recv_time" in item:
-                            try:
-                                recv_time_val = float(item["recv_time"])
-                            except Exception:
-                                recv_time_val = now
-                        else:
-                            recv_time_val = now
-                        if isinstance(item, dict):
-                            # Use same time parsing logic as main stats - ONLY use timestamp_ms
-                            try:
-                                if "timestamp_ms" in item:
-                                    # timestamp_ms is already in milliseconds, convert to seconds
-                                    start_time = float(item["timestamp_ms"]) / 1000.0
-                                else:
-                                    # Fallback to current time if no timestamp_ms
-                                    start_time = recv_time_val
-                            except Exception:
-                                start_time = recv_time_val
-                            
-                            if "recv_time" in item:
-                                try:
-                                    recv_time_val = float(item["recv_time"])
-                                except Exception:
-                                    recv_time_val = now
-                        tx_time = 0.0
-                        if start_time is not None:
-                            tx_time = max(0.0, recv_time_val - start_time)
-
-                        received_count += 1
-                        packets.append({
-                            "index": received_count,
-                            "resource": path,
-                            "message_str": msg_str,
-                            "message_bytes": message_bytes,
-                            "start_time": start_time if start_time is not None else recv_time_val,
-                            "recv_time": recv_time_val,
-                            "tx_time": tx_time,
-                        })
-                        total_bytes += message_bytes
-                        total_tx_time += tx_time
-
-            resp = {
-                "packets": packets,
-                "total_bytes": total_bytes,
-                "total_tx_time": total_tx_time,
-                "received_count": received_count,
-                "aggregate_rate_bps": (total_bytes / total_tx_time) if total_tx_time > 0 else 0.0,
-            }
+            
+            coap_data = _get_coap_data_from_server()
+            # Apply limit to packets
+            if len(coap_data["packets"]) > limit:
+                coap_data["packets"] = coap_data["packets"][-limit:]
+                coap_data["received_count"] = len(coap_data["packets"])
+            
             self._set_common_headers(200, "application/json; charset=utf-8")
-            self.wfile.write(json.dumps(resp).encode("utf-8"))
+            self.wfile.write(json.dumps(coap_data).encode("utf-8"))
+            return
+
+        if parsed.path == "/sensor_data":
+            # Return current sensor data for dashboard
+            with STATE_LOCK:
+                sensor_data = {
+                    "temperature": SENSOR_DATA["temperature"],
+                    "humidity": SENSOR_DATA["humidity"],
+                    "timestamp": SENSOR_DATA["timestamp"],
+                    "sensor_id": SENSOR_DATA["sensor_id"],
+                    "history_count": len(SENSOR_DATA["history"])
+                }
+            
+            self._set_common_headers(200, "application/json; charset=utf-8")
+            self.wfile.write(json.dumps(sensor_data).encode("utf-8"))
             return
 
         self._set_common_headers(404, "text/plain; charset=utf-8")
@@ -323,7 +210,7 @@ class StatsHandler(BaseHTTPRequestHandler):
             path = str(body.get("path", "/")).strip() or "/"
             payload = str(body.get("payload", ""))
 
-            host = "192.168.3.4"
+            host = "10.181.159.56"
             port = 2606
 
             try:
@@ -401,6 +288,71 @@ class StatsHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"Not Found")
 
 
+def _get_coap_data_from_server():
+    """Helper function to get CoAP data from server"""
+    try:
+        now = time.time()
+        packets = []
+        total_bytes = 0
+        total_tx_time = 0.0
+        received_count = 0
+        resources = getattr(COAP_SERVER, "resources", {}) or {}
+        
+        if isinstance(resources, dict):
+            for path, store in resources.items():
+                if isinstance(store, list):
+                    for item in store:
+                        try:
+                            msg_str = json.dumps(item, ensure_ascii=False)
+                        except Exception:
+                            continue
+                            
+                        message_bytes = len(msg_str.encode("utf-8"))
+                        recv_time_val = now
+                        
+                        # Calculate start_time from timestamp_ms
+                        start_time = recv_time_val
+                        if isinstance(item, dict) and "timestamp_ms" in item:
+                            try:
+                                start_time = float(item["timestamp_ms"]) / 1000.0
+                            except Exception:
+                                start_time = recv_time_val
+                        
+                        tx_time = abs( recv_time_val - start_time)
+                        
+                        received_count += 1
+                        packets.append({
+                            "index": received_count,
+                            "resource": path,
+                            "message_str": msg_str,
+                            "message_bytes": message_bytes,
+                            "start_time": start_time,
+                            "recv_time": recv_time_val,
+                            "tx_time": tx_time,
+                        })
+                        total_bytes += message_bytes
+                        total_tx_time += tx_time
+        
+        return {
+            "packets": packets,
+            "total_bytes": total_bytes,
+            "total_tx_time": total_tx_time,
+            "received_count": received_count,
+            "done": False,
+            "aggregate_rate_bps": (total_bytes / total_tx_time) if total_tx_time > 0 else 0.0,
+        }
+    except Exception:
+        with STATE_LOCK:
+            return {
+                "packets": COAP_STATE["packets"],
+                "total_bytes": COAP_STATE["total_bytes"],
+                "total_tx_time": COAP_STATE["total_tx_time"],
+                "received_count": COAP_STATE["received_count"],
+                "done": COAP_STATE["done"],
+                "aggregate_rate_bps": (COAP_STATE["total_bytes"] / COAP_STATE["total_tx_time"]) if COAP_STATE["total_tx_time"] > 0 else 0.0,
+            }
+
+
 def run_http_server(host="127.0.0.1", port=8080):
     httpd = HTTPServer((host, port), StatsHandler)
     print(f"HTTP server running at http://{host}:{port}")
@@ -433,77 +385,66 @@ def mqtt_collect_loop(broker_host: str, broker_port: int, topic: str, client_id:
         send_time = local_recv_time
         recv_time_value = local_recv_time
         
-        def normalize_epoch(value) -> float:
-             # Handle different time formats from client
-             try:
-                 # If it's already a number, use existing logic
-                 if isinstance(value, (int, float)):
-                     v = float(value)
-                     if v > 1e14:   # nanoseconds
-                         return v / 1e9
-                     if v > 1e12:   # microseconds
-                         return v / 1e6
-                     if v > 1e11:   # milliseconds
-                         return v / 1e3
-                     return v
-                 
-                 # If it's a string, try to parse HH:MM:SS format
-                 if isinstance(value, str):
-                     time_str = value.strip()
-                     # Check if it's HH:MM:SS format (e.g., "14:30:25")
-                     if ':' in time_str and len(time_str.split(':')) == 3:
-                         try:
-                             from datetime import datetime
-                             # Parse as time today
-                             today = datetime.now().date()
-                             time_obj = datetime.strptime(f"{today} {time_str}", "%Y-%m-%d %H:%M:%S")
-                             return time_obj.timestamp()
-                         except Exception:
-                             pass
-                     
-                     # Try parsing as float (epoch timestamp)
-                     return float(time_str)
-                     
-             except Exception:
-                 pass
-             return local_recv_time
         try:
             obj = json.loads(msg_str)
-            # Extract sender time - ONLY use timestamp_ms for consistency
-            try:
-                if "timestamp_ms" in obj:
-                    # timestamp_ms is already in milliseconds, convert to seconds
-                    send_time = float(obj.get("timestamp_ms")) / 1000.0
-                else:
-                    # Fallback to current time if no timestamp_ms
+            
+            # Extract sender time from timestamp_ms
+            if "timestamp_ms" in obj:
+                try:
+                    esp32_timestamp_ms = float(obj.get("timestamp_ms"))
+                    send_time = esp32_timestamp_ms / 1000.0
+                    
+                    # Debug: In ra thời gian để kiểm tra
+                    print(f"[TIME DEBUG] ESP32: {esp32_timestamp_ms}ms | Server: {local_recv_time:.3f}s | Diff: {local_recv_time - send_time:.3f}s")
+                except Exception as e:
+                    print(f"[TIME ERROR] Failed to parse timestamp_ms: {e}")
                     send_time = local_recv_time
-            except Exception:
-                send_time = local_recv_time
-            try:
-                if "recv_time" in obj:
-                    recv_time_value = normalize_epoch(obj.get("recv_time", local_recv_time))
-            except Exception:
-                recv_time_value = local_recv_time
+            
+            # Extract sensor data (temperature and humidity)
+            if "data" in obj and "humidity" in obj:
+                try:
+                    temperature = float(obj.get("data", 0))
+                    humidity = float(obj.get("humidity", 0))
+                    sensor_id = obj.get("sensor", "ESP32")
+                    
+                    # Update global sensor data
+                    with STATE_LOCK:
+                        SENSOR_DATA["temperature"] = temperature
+                        SENSOR_DATA["humidity"] = humidity
+                        SENSOR_DATA["timestamp"] = send_time * 1000
+                        SENSOR_DATA["sensor_id"] = sensor_id
+                        
+                        # Add to history (keep last 50 points)
+                        SENSOR_DATA["history"].append({
+                            "temperature": temperature,
+                            "humidity": humidity,
+                            "timestamp": send_time * 1000,
+                            "sensor_id": sensor_id
+                        })
+                        
+                        # Keep only last 50 data points
+                        if len(SENSOR_DATA["history"]) > 50:
+                            SENSOR_DATA["history"] = SENSOR_DATA["history"][-50:]
+                        
+                except Exception as e:
+                    print(f"[SENSOR] Error parsing sensor data: {e}")
+                
         except Exception:
             pass
-        tx_time = max(0.0, recv_time_value - send_time)
-        # Cap to avoid extreme outliers if clocks are skewed
-        if tx_time > 30.0:
+            
+        # Tính tx_time với xử lý trường hợp thời gian ESP32 > thời gian server
+        tx_time = recv_time_value - send_time
+        
+        # Nếu tx_time âm (ESP32 time > Server time), có thể do:
+        # 1. Chênh lệch đồng hồ giữa ESP32 và server
+        # 2. ESP32 chưa đồng bộ NTP đúng cách
+        if tx_time < 0:
+            print(f"[TIME WARNING] Negative tx_time: {tx_time:.3f}s (ESP32 ahead by {abs(tx_time):.3f}s)")
+            # Sử dụng trị tuyệt đối để có giá trị thực tế
+            tx_time = abs(tx_time)
+        elif tx_time > 30.0:  # Cap extreme outliers
+            print(f"[TIME WARNING] Very large tx_time: {tx_time:.3f}s")
             tx_time = 30.0
-
-        # Debug output for time calculation verification
-        try:
-            obj = json.loads(msg_str)
-            if "timestamp_ms" in obj:
-                time_source = "timestamp_ms"
-                timestamp_ms_value = float(obj.get("timestamp_ms"))
-            else:
-                time_source = "fallback"
-                timestamp_ms_value = 0
-        except:
-            time_source = "error"
-            timestamp_ms_value = 0
-        print(f"[DEBUG] timestamp_ms={timestamp_ms_value:.0f}ms, send_time={send_time:.6f}s, recv_time={recv_time_value:.6f}s, tx_time={tx_time:.6f}s")
 
         with STATE_LOCK:
             if MQTT_STATE["done"]:
@@ -525,8 +466,6 @@ def mqtt_collect_loop(broker_host: str, broker_port: int, topic: str, client_id:
             if MQTT_STATE["received_count"] >= PACKET_LIMIT:
                 MQTT_STATE["done"] = True
 
-        print(f"[MQTT #{index}] topic={msg_topic} bytes={message_bytes} tx_time={tx_time:.6f}s")
-
     # register callback
     client.onReciveMessage = on_message
 
@@ -546,7 +485,7 @@ try:
     def start_coap_server_bg():
         try:
             global COAP_SERVER
-            COAP_SERVER = SimpleCoAPServer("192.168.3.4",2606)
+            COAP_SERVER = SimpleCoAPServer("10.181.159.56",2606)
             t = threading.Thread(target=COAP_SERVER.start, daemon=True)
             t.start()
             print("CoAP server thread started.")
@@ -596,6 +535,7 @@ INDEX_HTML = """
   <script>
     let chartMqtt;
     let chartCoap;
+    let chartSensor;
     let autoCoap = false;
 
     function renderPanel(kind, data) {
@@ -658,6 +598,94 @@ INDEX_HTML = """
       }
     }
 
+    function renderSensorChart(data) {
+      // Extract temperature and humidity data from MQTT packets
+      const sensorData = [];
+      const labels = [];
+      
+      if (data.packets && data.packets.length > 0) {
+        data.packets.forEach((packet, index) => {
+          try {
+            const messageObj = JSON.parse(packet.message_str);
+            if (messageObj.data !== undefined && messageObj.humidity !== undefined) {
+              sensorData.push({
+                temperature: parseFloat(messageObj.data),
+                humidity: parseFloat(messageObj.humidity),
+                timestamp: messageObj.timestamp_ms || Date.now()
+              });
+              labels.push(new Date(messageObj.timestamp_ms || Date.now()).toLocaleTimeString('vi-VN'));
+            }
+          } catch (e) {
+            // Skip invalid JSON
+          }
+        });
+      }
+
+      const temperatures = sensorData.map(d => d.temperature);
+      const humidities = sensorData.map(d => d.humidity);
+
+      if (typeof Chart === 'undefined') {
+        return;
+      }
+
+      if (!chartSensor) {
+        const ctx = document.getElementById('chartSensor').getContext('2d');
+        chartSensor = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels,
+            datasets: [
+              {
+                label: 'Nhiệt độ (°C)',
+                data: temperatures,
+                borderColor: '#e53e3e',
+                backgroundColor: 'rgba(229, 62, 62, 0.1)',
+                borderWidth: 3,
+                fill: true,
+                tension: 0.4
+              },
+              {
+                label: 'Độ ẩm (%)',
+                data: humidities,
+                yAxisID: 'y1',
+                borderColor: '#3182ce',
+                backgroundColor: 'rgba(49, 130, 206, 0.1)',
+                borderWidth: 3,
+                fill: true,
+                tension: 0.4
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            interaction: { mode: 'index', intersect: false },
+            stacked: false,
+            scales: {
+              y: { 
+                type: 'linear', 
+                position: 'left', 
+                title: { display: true, text: 'Nhiệt độ (°C)' },
+                beginAtZero: false
+              },
+              y1: { 
+                type: 'linear', 
+                position: 'right', 
+                grid: { drawOnChartArea: false }, 
+                title: { display: true, text: 'Độ ẩm (%)' },
+                beginAtZero: true,
+                max: 100
+              }
+            }
+          }
+        });
+      } else {
+        chartSensor.data.labels = labels;
+        chartSensor.data.datasets[0].data = temperatures;
+        chartSensor.data.datasets[1].data = humidities;
+        chartSensor.update();
+      }
+    }
+
     async function fetchStats() {
       try {
         const res = await fetch(`/stats?includeCoap=${autoCoap ? '1' : '0'}`, { cache: 'no-store' });
@@ -672,6 +700,8 @@ INDEX_HTML = """
         if (limitEl && all && all.ui_display_limit) limitEl.textContent = all.ui_display_limit;
         if (all && all.mqtt) {
       renderPanel('mqtt', all.mqtt);
+          // Render sensor chart with MQTT data
+          renderSensorChart(all.mqtt);
           // Update message table
           try {
             const curTopic = curTopicEl?.textContent || '';
@@ -826,12 +856,12 @@ INDEX_HTML = """
       <div class="kpi">
         <div><div class="muted">Received</div><div id="mqtt-count">0</div></div>
         <div><div class="muted">Total Bytes</div><div id="mqtt-bytes">0</div></div>
-        <div><div class="muted">Total Tx Time (s)</div><div id="mqtt-totaltime">0</div></div>
+        <div style="display: none;"><div class="muted">Total Tx Time (s)</div><div id="mqtt-totaltime">0</div></div>
       </div>
-      <div class="kpi" style="margin-top:8px; grid-template-columns: repeat(1, minmax(140px, 1fr));">
+      <div class="kpi" style="margin-top:8px; grid-template-columns: repeat(1, minmax(140px, 1fr)); display: none;">
         <div><div class="muted">Aggregate Rate (Bytes/s)</div><div id="mqtt-aggrate">0</div></div>
       </div>
-      <canvas id="chartMqtt" width="900" height="340" style="margin-top:12px;"></canvas>
+      <canvas id="chartMqtt" width="900" height="340" style="margin-top:12px; display: none;"></canvas>
 
       <div class="card" style="margin-top:16px;">
         <h4>MQTT Subscribe</h4>
@@ -883,12 +913,12 @@ INDEX_HTML = """
       <div class="kpi">
         <div><div class="muted">Received</div><div id="coap-count">0</div></div>
         <div><div class="muted">Total Bytes</div><div id="coap-bytes">0</div></div>
-        <div><div class="muted">Total Tx Time (s)</div><div id="coap-totaltime">0</div></div>
+        <div style="display: none;"><div class="muted">Total Tx Time (s)</div><div id="coap-totaltime">0</div></div>
       </div>
-      <div class="kpi" style="margin-top:8px; grid-template-columns: repeat(1, minmax(140px, 1fr));">
+      <div class="kpi" style="margin-top:8px; grid-template-columns: repeat(1, minmax(140px, 1fr)); display: none;">
         <div><div class="muted">Aggregate Rate (Bytes/s)</div><div id="coap-aggrate">0</div></div>
       </div>
-      <canvas id="chartCoap" width="900" height="340" style="margin-top:12px;"></canvas>
+      <canvas id="chartCoap" width="900" height="340" style="margin-top:12px; display: none;"></canvas>
 
       <div class="card" style="margin-top:16px;">
         <h4>CoAP Command</h4>
@@ -910,14 +940,20 @@ INDEX_HTML = """
           <textarea id="coapCmdResponse" class="resp-dark" rows="8" style="width:100%;" readonly></textarea>
         </div>
       </div>
+
+      <div class="card" style="margin-top:16px;">
+        <h4>🌡️ Biểu đồ Nhiệt độ & Độ ẩm</h4>
+        <div class="muted" style="margin-bottom:8px;">Dữ liệu cảm biến từ ESP32</div>
+        <canvas id="chartSensor" width="900" height="340" style="margin-top:12px;"></canvas>
+      </div>
     </div>
   </div>
 </body>
 </html>
 """
 def main():
-    # Configuration (change as needed)
-    broker_host = "192.168.3.4"
+    # Configuration
+    broker_host = "10.181.159.56"
     broker_port = 20904
     mqtt_topic = MQTT_TOPIC
     client_id = "web_stats_client"
@@ -928,40 +964,35 @@ def main():
     http_thread = threading.Thread(target=run_http_server, args=(http_host, http_port), daemon=True)
     http_thread.start()
 
-    # Start embedded CoAP and MQTT broker so clients can connect locally
-    # Start embedded CoAP server to accept incoming data
+    # Start embedded servers
     global COAP_SERVER
     if COAP_SERVER is None:
         try:
             start_coap_server_bg()
         except Exception:
             pass
-    # Start embedded MQTT broker on localhost:1883
+    
     try:
         start_mqtt_broker_bg(broker_host, broker_port)
     except Exception:
         pass
 
-    # Start real MQTT collector; CoAP handled by embedded server
+    # Start MQTT collector
     mqtt_thread = threading.Thread(target=mqtt_collect_loop, args=(broker_host, broker_port, mqtt_topic, client_id, {}), daemon=True)
-    coap_thread = None
-
     mqtt_thread.start()
-    if coap_thread is not None:
-        coap_thread.start()
 
     print("Open the web UI:")
     print(f"  http://{http_host}:{http_port}")
     print(f"  MQTT topic: {mqtt_topic}")
 
-    # Keep main thread alive until both channels are done
+    # Keep main thread alive
     try:
         while True:
             with STATE_LOCK:
                 if MQTT_STATE["done"] and COAP_STATE["done"]:
                     break
             time.sleep(0.2)
-        print("Collected all packets on both channels. UI shows final results.")
+        print("Collected all packets. UI shows final results.")
         while True:
             time.sleep(1)
     except KeyboardInterrupt:

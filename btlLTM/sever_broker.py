@@ -176,18 +176,9 @@ class SimpleMQTTBroker:
         first_byte = data[0]
         packet_type_num = (first_byte >> 4) & 0x0F  # Lấy 4 bits cao
         packet_type = MQTT_PACKET_TYPES.get(packet_type_num, 'UNKNOWN')
-
-        print(f"🔍 First byte: 0x{first_byte:02x} = {bin(first_byte)}")
-        print(f"🔍 Packet type number: {packet_type_num}")
-        print(f"🔍 Packet type: {packet_type}")
-
         # Byte thứ 2 là remaining length (simplified - thực tế phức tạp hơn)
         remaining_length = data[1] if len(data) > 1 else 0
         payload = data[2:2+remaining_length] if len(data) > 2 else b''
-
-        print(f"🔍 Remaining length: {remaining_length}")
-        print(f"🔍 Payload: {payload.hex() if payload else '(empty)'}")
-
         return packet_type, payload
 
     def handle_connect(self, client_socket, payload, address):
