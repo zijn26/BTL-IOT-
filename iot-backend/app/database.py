@@ -6,7 +6,7 @@ from app.config import settings
 # Supabase clients
 supabase: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_ANON_KEY)
 supabase_admin: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
-
+TAG = "DATABASE:-"
 class Database:
     def __init__(self):
         self.client = supabase

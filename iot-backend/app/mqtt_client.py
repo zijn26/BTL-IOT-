@@ -39,9 +39,8 @@ class SimpleMQTTClient:
                     self.connected = True
                     print("✅ Kết nối thành công!")
 
-                    # Start receiving thread
-                    receive_thread = threading.Thread(target=self.receive_loop, daemon=True)
-                    receive_thread.start()
+                    # Start receiving
+                    self.receive_loop()
 
                     return True
                 else:
@@ -129,21 +128,17 @@ class SimpleMQTTClient:
     def publish(self, topic, message):
         """Publish message đến topic"""
         if not self.connected:
-            print("❌ Chưa kết nối!")
-            return False
+            return "CHua ket noi toi broker "
 
         try:
             # Tạo PUBLISH packet
             publish_packet = self.create_publish_packet(topic, message)
-            print(f"📤 Gửi PUBLISH '{topic}': '{message}'")
-            print(f"📦 Packet: {publish_packet.hex()}")
 
             self.socket.send(publish_packet)
             return True
 
         except Exception as e:
-            print(f"❌ Lỗi publish: {e}")
-            return False
+            return f"loi khi gui {e}"
 
     def create_publish_packet(self, topic, message):
         """Tạo MQTT PUBLISH packet"""
@@ -230,101 +225,3 @@ class SimpleMQTTClient:
                 print("🔌 Đã ngắt kết nối")
             except:
                 pass
-
-# Demo script
-def demo():
-    print("🧪 DEMO MQTT CLIENT - TEST DIY BROKER")
-    print("="*50)
-
-    print("\n📋 Chương trình sẽ thực hiện:")
-    print("1. Kết nối đến broker")
-    print("2. Subscribe topic 'test/demo'") 
-    print("3. Publish một số tin nhắn")
-    print("4. Hiển thị tin nhắn nhận được")
-    print("5. Ngắt kết nối")
-
-    client = SimpleMQTTClient(client_id='demo_client')
-
-    # 1. Kết nối
-    print("\n🔗 Bước 1: Kết nối đến broker...")
-    if not client.connect():
-        print("❌ Không thể kết nối!")
-        return
-
-    time.sleep(1)
-
-    # 2. Subscribe
-    print("\n📝 Bước 2: Subscribe topic 'test/demo'...")
-    client.subscribe('test/demo')
-
-    time.sleep(1)
-
-    # 3. Publish một số tin nhắn
-    print("\n📤 Bước 3: Publish tin nhắn...")
-    messages = [
-        "Hello từ DIY Client!",
-        "Tin nhắn số 2",
-        "MQTT hoạt động rồi!",
-        "🎉 Thành công!"
-    ]
-
-    for i, msg in enumerate(messages, 1):
-        print(f"\n📨 Gửi tin nhắn {i}/{len(messages)}")
-        client.publish('test/demo', msg)
-        time.sleep(2)  # Chờ để xem response
-
-    print("\n⏳ Chờ 3 giây để xem tất cả responses...")
-    time.sleep(3)
-
-    # 4. Ngắt kết nối
-    print("\n🔌 Bước 4: Ngắt kết nối...")
-    client.disconnect()
-
-    print("\n✅ Demo hoàn thành!")
-    print("💡 Bạn đã thấy toàn bộ quá trình Pub/Sub hoạt động!")
-
-if __name__ == "__main__":
-    print("🎯 MQTT TEST CLIENT")
-    print("Dùng để test DIY MQTT Broker")
-    print("\nChọn chế độ:")
-    print("1. Chạy demo tự động")
-    print("2. Chế độ interactive")
-
-    choice = input("\nNhập lựa chọn (1/2): ").strip()
-
-    if choice == "1":
-        demo()
-    else:
-        print("\n🔧 Chế độ Interactive:")
-        print("Bạn có thể tự test connect/subscribe/publish")
-
-        client = SimpleMQTTClient(client_id='interactive_client')
-
-        if client.connect():
-            print("\n✅ Đã kết nối!")
-            print("Bạn có thể:")
-            print("- client.subscribe('topic_name')")
-            print("- client.publish('topic_name', 'message')")
-            print("- client.disconnect()")
-
-            # Để người dùng tự test
-            while True:
-                try:
-                    cmd = input("\n> ").strip()
-                    if cmd.lower() in ['quit', 'exit', 'q']:
-                        break
-                    elif cmd.startswith('sub '):
-                        topic = cmd[4:]
-                        client.subscribe(topic)
-                    elif cmd.startswith('pub '):
-                        parts = cmd[4:].split(' ', 1)
-                        if len(parts) == 2:
-                            client.publish(parts[0], parts[1])
-                        else:
-                            print("Format: pub <topic> <message>")
-                    elif cmd == 'help':
-                        print("Commands: sub <topic>, pub <topic> <message>, quit")
-                except KeyboardInterrupt:
-                    break
-
-            client.disconnect()

@@ -14,9 +14,14 @@ const char* wit_access_token = "XNEACJL4ODFGEWYCYGOLRYGYX2OFP54G";
 
 // Cấu hình I2S cho INMP441
 #define I2S_WS 25
-#define I2S_SD 33
-#define I2S_SCK 32
+#define I2S_SD 32
+#define I2S_SCK 26
 #define I2S_PORT I2S_NUM_0
+
+// Định nghĩa LED_BUILTIN cho ESP32
+#ifndef LED_BUILTIN
+#define LED_BUILTIN 2
+#endif
 
 // Cấu hình ghi âm được cải thiện
 #define SAMPLE_RATE 16000  // Tăng lên 16kHz để chất lượng tốt hơn
@@ -381,7 +386,7 @@ void applyAGC(int16_t* samples, int count) {
   // Tính toán gain tự động dựa trên mức tín hiệu
   int dynamic_gain = AUDIO_GAIN;
   if (avg < 50) {
-    dynamic_gain = AUDIO_GAIN + 60;  // Tăng gain cho tín hiệu yếu
+    dynamic_gain = AUDIO_GAIN + 600 ;  // Tăng gain cho tín hiệu yếu
   } else if (avg < 100) {
     dynamic_gain = AUDIO_GAIN + 60;
   } else if (avg > 1000) {

@@ -1,6 +1,7 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <SPIFFS.h>
+#include <math.h>
 
 class MQTTAudioStreamer {
 private:
@@ -14,6 +15,21 @@ private:
     static const int OVERLAP_SIZE = 512;       // 512 bytes overlap
     int16_t overlapBuffer[OVERLAP_SIZE/2];
     bool hasOverlap = false;
+    
+    // Helper function to calculate RMS
+    float calculateRMS(int16_t* samples, int count) {
+        long sum = 0;
+        for (int i = 0; i < count; i++) {
+            sum += samples[i] * samples[i];
+        }
+        return sqrt(sum / (float)count);
+    }
+    
+    // Callback function for transcription results
+    void onTranscriptionReceived(String text, float confidence) {
+        Serial.println("🎯 Transcription: " + text + " (Confidence: " + String(confidence * 100, 1) + "%)");
+        // Thêm xử lý khác nếu cần
+    }
     
 public:
     void setup() {
@@ -101,7 +117,7 @@ public:
             totalSamples += OVERLAP_SIZE/2;
             
             // Cross-fade overlap region
-            crossFadeOverlap(chunkWithOverlap, OVERLAP_SIZE/2);
+            this->crossFadeOverlap(chunkWithOverlap, OVERLAP_SIZE/2);
         } else {
             memcpy(chunkWithOverlap, audioData, samples * 2);
         }
@@ -144,7 +160,7 @@ public:
         }
         
         // 2. Simple AGC
-        float rms = calculateRMS(samples, count);
+        float rms = this->calculateRMS(samples, count);
         if (rms > 0 && rms < 8000) { // Nếu tín hiệu quá yếu
             float gain = 8000.0f / rms;
             gain = fminf(gain, 4.0f); // Limit gain
@@ -179,7 +195,7 @@ public:
                 Serial.printf("🎯 STT Result: %s (%.1f%%)\n", text.c_str(), confidence * 100);
                 
                 // Callback for transcription result
-                onTranscriptionReceived(text, confidence);
+                this->onTranscriptionReceived(text, confidence);
             }
             else if (doc["type"] == "error") {
                 Serial.println("❌ Server error: " + doc["message"].as<String>());

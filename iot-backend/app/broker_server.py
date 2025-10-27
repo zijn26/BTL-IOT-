@@ -12,7 +12,7 @@ import threading
 import struct
 import time
 from typing import Dict, List, Optional
-
+from app.security import verify_device_token    
 # MQTT Control Packet Types (theo MQTT 3.1.1 specification)
 MQTT_PACKET_TYPES = {
     1: 'CONNECT',
@@ -30,6 +30,9 @@ MQTT_PACKET_TYPES = {
     13: 'PINGRESP',
     14: 'DISCONNECT'
 }
+TAG = "MQTT Broker : "
+TOPIC_CONTRO=  "CT/"
+TOPIC_SENSOR = "SS/"
 
 class SimpleMQTTBroker:
     """
@@ -40,23 +43,17 @@ class SimpleMQTTBroker:
     - Dictionary lưu subscriptions (topic -> list clients) 
     - Logic Pub/Sub: ai subscribe topic nào thì nhận tin nhắn topic đó
     """
-
     def __init__(self, host='localhost', port=1883):
         self.host = host
         self.port = port
         self.socket = None
         self.running = False
-
+        self.handle_disconect = None
+        self.handle_connected = None
         # *** CÁC CẤU TRÚC DỮ LIỆU CHÍNH - TRÁI TIM CỦA BROKER ***
         self.clients = {}                    # {client_id: socket_object}
         self.subscriptions = {}              # {topic: [list_of_client_sockets]} <- MAGIC HERE!
         self.client_subscriptions = {}       # {client_socket: [list_of_topics]}
-
-        print(f"🔧 Khởi tạo MQTT Broker tại {host}:{port}")
-        print("📊 Cấu trúc dữ liệu 'bộ não' broker:")
-        print(f"   - clients: {self.clients}")
-        print(f"   - subscriptions: {self.subscriptions}")
-        print(f"   - client_subscriptions: {self.client_subscriptions}")
 
     def start(self):
         """Khởi động MQTT Broker Server"""
@@ -71,16 +68,12 @@ class SimpleMQTTBroker:
 
             self.running = True
             print(f"\n✅ MQTT Broker đã khởi động tại {self.host}:{self.port}")
-            print("🔄 Đang lắng nghe kết nối...")
-            print("💡 Đây chính là socket.listen() - 'gõ cửa' từ ESP32/clients")
-            print("\n" + "="*80)
-
             while self.running:
                 try:
                     # Accept kết nối mới - Khi ESP32 gọi client.connect()
                     client_socket, address = self.socket.accept()
-                    print(f"\n🌟 Kết nối mới từ: {address}")
-                    print(f"🔌 Socket object: {client_socket}")
+                    print(TAG + f"\n🌟 Kết nối mới từ: {address}")
+                    print(TAG + f"🔌 Socket object: {client_socket}")
 
                     # Tạo thread để xử lý client này (bỏ qua threading complexity theo yêu cầu)
                     # Nhưng cần thiết để handle multiple clients
@@ -93,10 +86,10 @@ class SimpleMQTTBroker:
 
                 except Exception as e:
                     if self.running:
-                        print(f"❌ Lỗi khi accept connection: {e}")
+                        print(TAG + f"❌ Lỗi khi accept connection: {e}")
 
         except Exception as e:
-            print(f"❌ Lỗi khởi động server: {e}")
+            print(TAG + f"❌ Lỗi khởi động server: {e}")
         finally:
             self.stop()
 
@@ -105,7 +98,6 @@ class SimpleMQTTBroker:
         self.running = False
         if self.socket:
             self.socket.close()
-        print("\n🛑 MQTT Broker đã dừng")
 
     def handle_client(self, client_socket, address):
         """
@@ -113,7 +105,7 @@ class SimpleMQTTBroker:
         Mỗi ESP32 sẽ có một thread riêng chạy function này
         """
         client_id = None
-        print(f"🎯 Bắt đầu xử lý client {address}")
+        print(TAG + f"🎯 Bắt đầu xử lý client {address}")
 
         try:
             while self.running:
@@ -122,39 +114,27 @@ class SimpleMQTTBroker:
                 if not data:
                     print(f"🔌 Client {address} đã ngắt kết nối (empty data)")
                     break
-
-                print(f"\n📨 Nhận {len(data)} bytes từ {address}")
-                print(f"🔍 Raw bytes: {data.hex()}")
-                print(f"💡 Đây chính là MQTT packet được ESP32 gửi!")
-
                 # Parse MQTT packet - Giải mã "ngôn ngữ" MQTT
                 packet_type, payload = self.parse_mqtt_packet(data)
-                print(f"📋 Packet đã parse: {packet_type}")
-
                 # Xử lý các loại packet khác nhau
                 if packet_type == 'CONNECT':
                     client_id = self.handle_connect(client_socket, payload, address)
-
                 elif packet_type == 'PUBLISH':
                     print("🎯 *** ĐÂY LÀ PUBLISH - TRÁI TIM PUB/SUB! ***")
                     self.handle_publish(client_socket, payload)
-
                 elif packet_type == 'SUBSCRIBE':
                     print("🎯 *** ĐÂY LÀ SUBSCRIBE - ĐĂNG KÝ NHẬN TIN! ***")
                     self.handle_subscribe(client_socket, payload, client_id)
-
                 elif packet_type == 'PINGREQ':
                     self.handle_ping(client_socket)
-
                 elif packet_type == 'DISCONNECT':
                     self.cleanup_client(client_socket, client_id)
                     break
-
                 else:
-                    print(f"⚠️ Packet type không được hỗ trợ: {packet_type}")
+                    print(TAG + f"⚠️ Packet type không được hỗ trợ: {packet_type} ")
 
         except Exception as e:
-            print(f"❌ Lỗi khi xử lý client {address}: {e}")
+            print(TAG + f"❌ Lỗi khi xử lý client {address}: {e}")
         finally:
             self.cleanup_client(client_socket, client_id)
 
@@ -181,51 +161,35 @@ class SimpleMQTTBroker:
         payload = data[2:2+remaining_length] if len(data) > 2 else b''
         return packet_type, payload
 
-    def handle_connect(self, client_socket, payload, address):
+    def handle_connect(self, client_socket, payload, address): # loi iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii
         """
         Xử lý MQTT CONNECT - Client "xin chào" broker
         """
-        print(f"🤝 Xử lý CONNECT từ {address}")
-        print("💡 Đây như ESP32 nói: 'Tôi muốn kết nối, tôi tên là...'")
-
         try:
-            # Parse client ID từ payload (simplified parsing)
+            # Parse client ID từ payload (simplified parsing)   
             # Thực tế MQTT CONNECT packet phức tạp hơn nhiều
-            client_id = f"client_{address[1]}"  # Đơn giản hóa
+            client_id = payload[10:10+len(payload)].decode('utf-8') # Đơn giản hóa
 
-            # Nếu có payload đủ dài, thử parse client ID thật
-            if len(payload) > 10:
-                try:
-                    # Skip protocol name và version (byte 0-9)
-                    client_id_len = struct.unpack(">H", payload[8:10])[0]
-                    if len(payload) >= 10 + client_id_len:
-                        client_id = payload[10:10+client_id_len].decode('utf-8')
-                        print(f"📝 Parsed Client ID: {client_id}")
-                except:
-                    pass  # Fallback to default client_id
-
-            print(f"👤 Client ID: {client_id}")
+            # data_device = verify_device_token(client_id)
+            data_device = "78"
+            if(data_device is None): 
+                connack = bytes([0x20, 0x02, 0x00, 0x02])  # CONNACK với return code 2 tức là client id không hợp lệ 
+                client_socket.send(connack)
+                return None
+            else:
             # *** LƯU CLIENT VÀO 'BỘ NHỚ' BROKER ***
-            self.clients[client_id] = client_socket
-            self.client_subscriptions[client_socket] = []
-
-            print(f"💾 Đã lưu vào bộ nhớ broker:")
-            print(f"   clients['{client_id}'] = {client_socket}")
-            print(f"   client_subscriptions[socket] = []")
-
-            # Gửi CONNACK - "Chào lại, kết nối thành công!"
-            connack = bytes([0x20, 0x02, 0x00, 0x00])  # CONNACK với return code 0
-            client_socket.send(connack)
-            print(f"📤 Đã gửi CONNACK cho {client_id}")
-
-            print(f"📊 TRẠNG THÁI BROKER:")
-            print(f"   Clients: {list(self.clients.keys())}")
-            print(f"   Subscriptions: {dict(self.subscriptions)}")
-
-            return client_id
+                self.clients[client_id] = client_socket
+                self.client_subscriptions[client_socket] = []
+                # Gửi CONNACK - "Chào lại, kết nối thành công!"
+                connack = bytes([0x20, 0x02, 0x00, 0x00])  # CONNACK với return code 0
+                client_socket.send(connack)
+                if self.handle_connected : 
+                    self.handle_connected(client_socket , client_id)
+                print(TAG + f"📤 Đã gửi CONNACK cho {client_id}")
+                return client_id
 
         except Exception as e:
-            print(f"❌ Lỗi xử lý CONNECT: {e}")
+            print(TAG + f"❌ Lỗi xử lý CONNECT: {e} --- client_socket : {client_socket} ")
             return None
 
     def handle_publish(self, client_socket, payload):
@@ -239,67 +203,50 @@ class SimpleMQTTBroker:
 
         Đó chính là toàn bộ bí mật của MQTT!
         """
-        print(f"📤 *** XỬ LÝ PUBLISH - TRÁI TIM PUB/SUB! ***")
-
+        client_id_len = struct.unpack(">H", payload[8:10])[0]
+        if len(payload) >= 10 + client_id_len:
+            client_id = payload[10:10+client_id_len].decode('utf-8')
+        else:
+            client_id = None
+        print(TAG + f"📝 PUBLISH RECEIVED:")
         try:
             # Parse topic name từ MQTT PUBLISH packet
             if len(payload) < 2:
-                print("❌ Payload quá ngắn")
+                print(TAG + f"❌ Payload quá ngắn ")
                 return
 
             # 2 bytes đầu là topic length
             topic_len = struct.unpack(">H", payload[0:2])[0]
-            print(f"🔍 Topic length: {topic_len}")
 
             if len(payload) < 2 + topic_len:
-                print("❌ Payload không đủ dài cho topic")
+                print(TAG + f"❌ Payload không đủ dài cho topic ")
                 return
 
             # Extract topic và message
             topic = payload[2:2+topic_len].decode('utf-8')
             message = payload[2+topic_len:].decode('utf-8')
-
-            print(f"📝 PUBLISH RECEIVED:")
-            print(f"   Topic: '{topic}'")
-            print(f"   Message: '{message}'")
-            print(f"💡 Giống như ESP32 gọi: client.publish('{topic}', '{message}')")
-
             # *** LOGIC PUB/SUB CHÍNH - ĐÂY LÀ MAGIC! ***
-            print(f"\n🎯 BẮT ĐẦU LOGIC PUB/SUB:")
-            print(f"🔍 Kiểm tra subscriptions['{topic}']...")
 
             if topic in self.subscriptions:
                 subscribers = self.subscriptions[topic]
-                print(f"✅ Tìm thấy {len(subscribers)} subscribers cho topic '{topic}'")
-                print(f"👥 Subscribers: {subscribers}")
-
                 # Tạo PUBLISH packet để gửi cho subscribers
                 publish_packet = self.create_publish_packet(topic, message)
-                print(f"📦 Tạo packet để gửi: {publish_packet.hex()}")
-
                 # *** GỬI CHO TẤT CẢ SUBSCRIBERS - ĐÂY LÀ DISTRIBUTION! ***
                 successful_sends = 0
                 for subscriber_socket in subscribers:
                     try:
                         subscriber_socket.send(publish_packet)
                         successful_sends += 1
-                        print(f"✅ Đã gửi message đến subscriber {subscriber_socket}")
                     except Exception as e:
                         print(f"❌ Không thể gửi đến subscriber: {e}")
 
-                print(f"🎉 Đã gửi thành công đến {successful_sends}/{len(subscribers)} subscribers")
+                print(TAG + f"🎉 Đã gửi thành công đến {successful_sends}/{len(subscribers)} subscribers")
 
             else:
-                print(f"📭 KHÔNG có subscriber nào cho topic '{topic}'")
-                print(f"💡 Giống như không ai 'lắng nghe' topic này")
-
-            # Hiển thị trạng thái hiện tại
-            print(f"\n📊 TRẠNG THÁI SUBSCRIPTIONS:")
-            for t, subs in self.subscriptions.items():
-                print(f"   '{t}': {len(subs)} subscribers")
+                print(TAG + f"📭 KHÔNG có subscriber nào cho topic '{topic}'")
 
         except Exception as e:
-            print(f"❌ Lỗi xử lý PUBLISH: {e}")
+            print(TAG + f"❌ Lỗi xử lý PUBLISH: {e} ")
 
     def handle_subscribe(self, client_socket, payload, client_id):
         """
@@ -311,8 +258,7 @@ class SimpleMQTTBroker:
 
         Đó là toàn bộ logic!
         """
-        print(f"📝 *** XỬ LÝ SUBSCRIBE - ĐĂNG KÝ! ***")
-        print(f"👤 Client: {client_id}")
+
 
         try:
             # Parse SUBSCRIBE packet
@@ -335,23 +281,17 @@ class SimpleMQTTBroker:
                 
                 offset += topic_len + 1  # +1 for QoS byte (skip)
 
-                print(f"📌 Client {client_id} muốn subscribe: '{topic}'")
-                print(f"💡 Giống như app gọi: client.subscribe('{topic}')")
-
-                print(f"\n🎯 THỰC HIỆN SUBSCRIPTION:")
 
                 # Tạo danh sách subscribers cho topic này nếu chưa có
                 if topic not in self.subscriptions:
                     self.subscriptions[topic] = []
-                    print(f"📝 Tạo mới subscriptions['{topic}'] = []")
 
                 # Thêm client socket vào danh sách subscribers
                 if client_socket not in self.subscriptions[topic]:
                     self.subscriptions[topic].append(client_socket)
-                    print(f"✅ Thêm client vào subscriptions['{topic}']")
-                    print(f"📊 subscriptions['{topic}'] hiện có: {len(self.subscriptions[topic])} subscribers")
+                  
                 else:
-                    print(f"⚠️ Client đã subscribe topic này rồi")
+                    print(TAG + f"⚠️ Client đã subscribe topic này rồi ")
 
                 # Lưu subscription cho client này (để cleanup sau)
                 if topic not in self.client_subscriptions[client_socket]:
@@ -365,17 +305,12 @@ class SimpleMQTTBroker:
                 suback_payload = bytes([payload[0], payload[1]]) + b'\x00' * len(subscribed_topics)
                 suback = bytes([0x90, len(suback_payload)]) + suback_payload
                 client_socket.send(suback)
-                print(f"📤 Đã gửi SUBACK cho {client_id}")
 
-            # Hiển thị trạng thái subscriptions
-            print(f"\n📊 TRẠNG THÁI SAU KHI SUBSCRIBE:")
-            print(f"👤 {client_id} đã subscribe: {self.client_subscriptions[client_socket]}")
-            print(f"📊 Tất cả subscriptions:")
             for topic, subscribers in self.subscriptions.items():
-                print(f"   '{topic}': {len(subscribers)} subscribers")
+                print(TAG + f"   '{topic}': {len(subscribers)} subscribers ")
 
         except Exception as e:
-            print(f"❌ Lỗi xử lý SUBSCRIBE: {e}")
+            print(TAG + f"❌ Lỗi xử lý SUBSCRIBE: {e} ")
 
     def handle_ping(self, client_socket):
         """Xử lý MQTT PINGREQ - Heartbeat"""
@@ -383,6 +318,10 @@ class SimpleMQTTBroker:
         print(f"💡 Đây như client hỏi: 'Broker còn sống không?' và broker trả lời: 'Còn!'")
         pingresp = bytes([0xD0, 0x00])  # PINGRESP
         client_socket.send(pingresp)
+
+    def getAllTopic(self) : 
+        # tra ve danh sachs subrice 
+        return self.subscriptions.keys()
 
     def create_publish_packet(self, topic, message):
         """
@@ -411,13 +350,6 @@ class SimpleMQTTBroker:
 
         # Payload: Message
         packet.extend(message_bytes)
-
-        print(f"📦 Tạo PUBLISH packet:")
-        print(f"   Fixed Header: [0x{packet[0]:02x}, 0x{packet[1]:02x}]")
-        print(f"   Topic: '{topic}' ({len(topic_bytes)} bytes)")
-        print(f"   Message: '{message}' ({len(message_bytes)} bytes)")
-        print(f"   Total packet: {bytes(packet).hex()}")
-
         return bytes(packet)
 
     def cleanup_client(self, client_socket, client_id):
@@ -425,28 +357,24 @@ class SimpleMQTTBroker:
         Dọn dẹp khi client ngắt kết nối
         Xóa client khỏi tất cả cấu trúc dữ liệu
         """
-        print(f"\n🧹 DỌN DẸP CLIENT: {client_id}")
+        if self.handle_disconect:
+            self.handle_disconect(client_socket, client_id)
         try:
             # Xóa client khỏi clients dictionary
             if client_id and client_id in self.clients:
                 del self.clients[client_id]
-                print(f"✅ Xóa khỏi clients dictionary")
 
             # Xóa client khỏi tất cả subscriptions
             topics_to_cleanup = []
             for topic, subscribers in self.subscriptions.items():
                 if client_socket in subscribers:
                     subscribers.remove(client_socket)
-                    print(f"✅ Xóa client khỏi subscription '{topic}'")
-
                     if not subscribers:  # Nếu không còn subscriber nào
                         topics_to_cleanup.append(topic)
 
             # Xóa topics không còn subscribers
             for topic in topics_to_cleanup:
                 del self.subscriptions[topic]
-                print(f"✅ Xóa topic '{topic}' (không còn subscribers)")
-
             # Xóa client subscriptions
             if client_socket in self.client_subscriptions:
                 del self.client_subscriptions[client_socket]
@@ -456,11 +384,6 @@ class SimpleMQTTBroker:
                 client_socket.close()
             except:
                 pass
-
-            print(f"📊 TRẠNG THÁI SAU CLEANUP:")
-            print(f"   Clients còn lại: {list(self.clients.keys())}")
-            print(f"   Topics còn lại: {list(self.subscriptions.keys())}")
-
         except Exception as e:
             print(f"❌ Lỗi dọn dẹp client: {e}")
 
@@ -468,34 +391,15 @@ class SimpleMQTTBroker:
 # CHƯƠNG TRÌNH CHÍNH
 # ================================
 
-# def main():
-#     """Chạy MQTT Broker"""
-#     print("🚀 MQTT BROKER TỪ ĐẦU - PYTHON THUẦN TÚY")
-#     print("="*80)
-#     print("💡 Đây là broker MQTT được viết hoàn toàn bằng Python")
-#     print("🎯 Mục đích: Hiểu rõ cách hoạt động của MQTT Broker")
-#     print("📚 Không sử dụng thư viện MQTT có sẵn")
-#     print("\n🔧 Cấu trúc hoạt động:")
-#     print("   1. TCP Socket Server lắng nghe port 1883")
-#     print("   2. Parse MQTT packets từ clients")
-#     print("   3. Quản lý subscriptions bằng Dictionary")
-#     print("   4. Thực hiện Pub/Sub distribution")
-#     print("\n📌 Để test broker:")
-#     print("   - mosquitto_sub -h localhost -t 'test/topic'")
-#     print("   - mosquitto_pub -h localhost -t 'test/topic' -m 'Hello'")
-#     print("   - ESP32 với library PubSubClient")
-#     print("\n" + "="*80)
+def main():
+    broker = SimpleMQTTBroker()
+    try:
+        print("\n⏹️  Nhấn Ctrl+C để dừng broker")
+        broker.start()
+    except KeyboardInterrupt:
+        print("\n\n🛑 Đang dừng broker...")
+        broker.stop()
+        print("👋 Cảm ơn bạn đã sử dụng DIY MQTT Broker!")
 
-#     broker = SimpleMQTTBroker()
-
-#     try:
-#         print("\n⏹️  Nhấn Ctrl+C để dừng broker")
-#         broker.start()
-
-#     except KeyboardInterrupt:
-#         print("\n\n🛑 Đang dừng broker...")
-#         broker.stop()
-#         print("👋 Cảm ơn bạn đã sử dụng DIY MQTT Broker!")
-
-# if __name__ == "__main__":
-#     main()
+if __name__ == "__main__":
+    main()

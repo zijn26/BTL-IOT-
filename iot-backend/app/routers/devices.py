@@ -3,7 +3,7 @@
 from unittest import result
 from fastapi import APIRouter, HTTPException, Depends, status
 from typing import List
-
+import secrets
 from pydantic.type_adapter import P
 from app.schemas.device import DeviceRegister, DeviceResponse, DeviceConfigRequest, DeviceUpdateRequest
 from app.middleware.auth import get_current_user
@@ -57,12 +57,12 @@ def register_device(
         
         # Create device JWT token
         device_token = create_device_token(str(current_user["id"]),str(device["device_token"]), device_data.device_type.value)
-        
+        token_verify = secrets.token_hex(16)
         # Update device với real token
         updated_device = db.execute_query(
             table="devices",
             operation="update",
-            data={"device_access_token": device_token},
+            data={"device_access_token": device_token , "token_verify" : token_verify},
             filters={"id": device["id"]}
         )
         
@@ -84,7 +84,8 @@ def register_device(
                 "id": device["id"],
                 "device_name": device["device_name"],
                 "device_type": device["device_type"],
-                "device_access_token": device_token
+                "device_access_token": device_token,
+                "token_verify" : token_verify
             },
             "message": "Device registered successfully"
         }
@@ -268,7 +269,7 @@ def config_device(
                         "pin_label": pin.pin_label,
                         "pin_type": pin.pin_type.value,
                         "data_type": pin.data_type.value,
-                        "ai_keywords": pin.ai_keywords
+                        "ai_keywords": pin.ai_keywords if pin.pin_type.value == "OUTPUT" else ""
                     },
                     filters={"device_token": device_Config.device_token, "virtual_pin": pin.virtual_pin}
                 )
@@ -282,7 +283,7 @@ def config_device(
                         "pin_label": pin.pin_label,
                         "pin_type": pin.pin_type.value,
                         "data_type": pin.data_type.value,
-                        "ai_keywords": pin.ai_keywords
+                        "ai_keywords": pin.ai_keywords if pin.pin_type.value == "OUTPUT" else ""
                     }
                 )
             if not result:

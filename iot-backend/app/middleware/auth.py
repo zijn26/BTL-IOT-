@@ -53,7 +53,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         print(f"❌ Exception: {e}")  # Debug exception
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials"
+            detail="Could not validate credentials" + str(e)
         )
 def get_current_device(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """Middleware để get current ESP32 device từ device token"""
