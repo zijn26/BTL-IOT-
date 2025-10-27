@@ -13,10 +13,6 @@ python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 .venv/Scripts/activate
 ```
 
-### 2. Mở giao diện test
-Mở file `frontend_test.html` trong trình duyệt web:
-- Chrome: `file:///path/to/iot-backend/frontend_test.html`
-- Firefox: `file:///path/to/iot-backend/frontend_test.html`
 
 ## 🔧 Các tính năng chính
 
