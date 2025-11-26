@@ -1,0 +1,368 @@
+/* Styles for Login component (approximate Tailwind-like utilities used in Login.tsx) */
+
+.min-h-screen { min-height: 100vh; }
+.flex { display: flex; }
+.items-center { align-items: center; }
+.justify-center { justify-content: center; }
+.p-6 { padding: 1.5rem; }
+.w-full { width: 100%; }
+.max-w-md { max-width: 28rem; }
+.mb-6 { margin-bottom: 1.5rem; }
+.gap-3 { gap: 0.75rem; }
+.p-3 { padding: 0.75rem; }
+.rounded-lg { border-radius: 0.5rem; }
+.rounded-2xl { border-radius: 1rem; }
+.shadow-xl { box-shadow: 0 10px 30px rgba(2,6,23,0.6); }
+.text-xl { font-size: 1.125rem; }
+.text-2xl { font-size: 1.5rem; }
+.font-semibold { font-weight: 600; }
+.text-sky-300 { color: #60a5fa; }
+.text-slate-400 { color: #94a3b8; }
+.text-slate-300 { color: #94a3b8; }
+.text-slate-500 { color: #64748b; }
+.text-slate-700 { color: #334155; }
+.text-white {
+  color: #ffffff;
+  /* bright glowing text with layered halo */
+  text-shadow:
+    0 0 2px rgba(255,255,255,0.95),
+    0 0 8px rgba(96,165,250,0.9),
+    0 0 18px rgba(59,130,246,0.7),
+    0 0 30px rgba(59,130,246,0.45);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: text-shadow 200ms ease, filter 200ms ease;
+  filter: drop-shadow(0 8px 20px rgba(59,130,246,0.12));
+}
+
+/* Respect reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .text-white {
+    transition: none;
+    text-shadow: 0 0 2px rgba(255,255,255,0.95);
+    filter: none;
+  }
+}
+.text-sm { font-size: 0.875rem; }
+.text-xs { font-size: 0.75rem; }
+.mb-4 { margin-bottom: 1rem; }
+.pt-1 { padding-top: 0.25rem; }
+.mt-4 { margin-top: 1rem; }
+.block { display: block; }
+.placeholder-slate-400::placeholder { color: #94a3b8; }
+.bg-slate-800\/60 { background-color: rgba(30, 41, 59, 0.6); }
+.bg-slate-900\/40 { background-color: rgba(15, 23, 42, 0.4); }
+.border { border-width: 1px; border-style: solid; }
+.border-slate-700 { border-color: #374151; }
+.rounded-md { border-radius: 0.375rem; }
+.px-3 { padding-left: 0.75rem; padding-right: 0.75rem; }
+.py-2 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+.rounded-lg { border-radius: 0.5rem; }
+.focus\:outline-none:focus { outline: none; }
+.focus\:ring-2:focus { box-shadow: 0 0 0 4px rgba(59,130,246,0.15); }
+.focus\:ring-sky-500:focus { --tw-ring-color: #0ea5e9; }
+.bg-red-900\/40 { background-color: rgba(100, 0, 0, 0.4); }
+.border-red-700 { border-color: #b91c1c; }
+.text-red-200 { color: #fecaca; }
+.bg-emerald-900\/30 { background-color: rgba(6,78,59,0.3); }
+.border-emerald-600 { border-color: #16a34a; }
+.text-emerald-200 { color: #bbf7d0; }
+
+/* Buttons */
+.inline-flex { display: inline-flex; }
+.justify-center { justify-content: center; }
+.items-center { align-items: center; }
+.gap-2 { gap: 0.5rem; }
+.rounded-lg { border-radius: 0.5rem; }
+.bg-sky-500 { background: linear-gradient(90deg,#60a5fa,#3b82f6); }
+.hover\:bg-sky-600:hover { background: linear-gradient(90deg,#2563eb,#1d4ed8); }
+.text-white { color: #fff; }
+.font-medium { font-weight: 500; }
+.shadow-sm { box-shadow: 0 1px 2px rgba(2,6,23,0.5); }
+.transition { transition: all 0.18s ease; }
+.border-slate-700 { border-color: #374151; }
+.text-slate-300 { color: #c7d2fe; }
+.hover\:bg-slate-700\/30:hover { background-color: rgba(51,65,85,0.3); }
+
+/* Card footer */
+.text-center { text-align: center; }
+
+/* Simple responsive adjustments */
+@media (max-width: 640px) {
+  .max-w-md { max-width: 100%; }
+  .p-6 { padding: 1rem; }
+}
+
+/* Utility to style icon box used in header */
+.p-3.bg-sky-700\/20 { background-color: rgba(14,165,233,0.12); }
+.ring-1 { box-shadow: 0 0 0 1px rgba(255,255,255,0.03) inset; }
+.ring-sky-600\/30 { box-shadow: 0 0 0 1px rgba(59,130,246,0.08); }
+
+/* Fallback input style for any inputs not matched */
+input[type="text"], input[type="email"], input[type="password"] {
+  font-family: inherit;
+}
+
+/* small helpers for borders/rounded when multiple classes included */
+.rounded-lg { border-radius: 0.5rem; }
+
+/* End Login.css */
+/* Login.css - phong cách ăn theo devicecontrol.css */
+:root{
+  --bg-card: rgba(31,41,55,0.7);
+  --accent: rgba(59,130,246,0.2);
+  --accent-strong: rgba(59,130,246,1);
+  --accent-light: rgba(96,165,250,0.08);
+  --text-main: #e0e7ff;
+  --text-sub: #94a3b8;
+  --success-bg: rgba(16,185,129,0.15);
+  --error-bg: rgba(239,68,68,0.12);
+  --glass-border: rgba(59,130,246,0.2);
+}
+
+/* Container toàn trang - luôn nằm giữa màn hình */
+.login-container {
+  position: fixed;
+  inset: 0; /* top:0; right:0; bottom:0; left:0 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  /* lighter bluish background for a softer look */
+  background: linear-gradient(180deg, #0e3a5a 0%, #082a45 100%);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  color: var(--text-main);
+  z-index: 50;
+}
+
+/* Card login giống device sidebar */
+.login-card {
+  width: 36rem; /* increased width */
+  max-width: calc(100% - 3rem);
+  background: var(--bg-card);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--glass-border);
+  border-radius: 1rem;
+  padding: 2rem; /* more padding for larger feel */
+  box-shadow: 0 18px 40px rgba(2,6,23,0.45);
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+  overflow: hidden;
+}
+
+/* hover card effect */
+.login-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 30px 70px rgba(37,99,235,0.12);
+  border-color: rgba(59,130,246,0.32);
+}
+
+/* header giống .sidebar-title */
+.login-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--accent);
+}
+
+.login-header-icon {
+  width: 2.25rem;
+  height: 2.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, rgba(59,130,246,0.08), rgba(96,165,250,0.03));
+  border-radius: 0.6rem;
+  color: #60a5fa;
+  box-shadow: 0 6px 12px rgba(2,6,23,0.6);
+  border: 1px solid rgba(59,130,246,0.06);
+}
+
+.login-header-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-main);
+  line-height: 1;
+}
+
+.login-header-sub {
+  font-size: 0.8rem;
+  color: var(--text-sub);
+  margin-top: 2px;
+}
+
+/* title card */
+.login-card h2 {
+  font-size: 2rem;
+  margin: 0.25rem 0 0.5rem 0;
+  color: #fff;
+  font-weight: 700;
+}
+
+.login-card p.lead {
+  margin: 0 0 1rem 0;
+  color: var(--text-sub);
+  font-size: 0.9rem;
+}
+
+/* messages */
+.error, .success {
+  padding: 0.6rem 0.85rem;
+  border-radius: 0.6rem;
+  font-size: 0.9rem;
+  margin-bottom: 0.75rem;
+  border: 1px solid transparent;
+}
+
+/* error */
+.error {
+  background: var(--error-bg);
+  color: #ffd7d7;
+  border-color: rgba(239,68,68,0.18);
+}
+
+/* success */
+.success {
+  background: rgba(16,185,129,0.12);
+  color: #d6f6e8;
+  border-color: rgba(16,185,129,0.22);
+}
+
+/* form layout */
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+/* nhóm input */
+.form-group label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--text-sub);
+  margin-bottom: 0.35rem;
+}
+
+.form-group input[type="text"],
+.form-group input[type="email"],
+.form-group input[type="password"] {
+  width: 100%;
+  padding: 0.65rem 0.9rem;
+  border-radius: 0.75rem;
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.00));
+  border: 1px solid rgba(255,255,255,0.04);
+  color: #f8fafc;
+  font-size: 0.95rem;
+  outline: none;
+  transition: box-shadow 0.18s ease, border-color 0.18s ease, transform 0.12s ease;
+  /* remove inset shading for a flatter look */
+  box-shadow: none;
+}
+
+/* placeholder màu nhạt */
+.form-group input::placeholder {
+  color: rgba(226,232,240,0.35);
+}
+
+/* focus */
+.form-group input:focus {
+  border-color: rgba(59,130,246,0.9);
+  box-shadow: 0 6px 18px rgba(37,99,235,0.08);
+  transform: translateY(-1px);
+}
+
+/* action buttons row */
+.form-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-top: 0.25rem;
+}
+
+/* button cơ bản */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.6rem 0.95rem;
+  border-radius: 0.75rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease;
+  border: 1px solid transparent;
+}
+
+/* primary button */
+.btn.primary {
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  color: white;
+  box-shadow: 0 8px 22px rgba(37,99,235,0.16);
+  border: 1px solid rgba(59,130,246,0.22);
+}
+
+.btn.primary:active { transform: translateY(1px) scale(0.998); }
+.btn.primary[disabled] { opacity: 0.6; cursor: not-allowed; box-shadow: none; }
+
+/* link-like button */
+.btn.link {
+  background: transparent;
+  color: var(--text-sub);
+  border: 1px solid rgba(255,255,255,0.03);
+}
+
+.btn.link:hover {
+  background: rgba(255,255,255,0.02);
+  color: #dbeafe;
+}
+
+/* small note under form */
+.login-note {
+  margin-top: 0.75rem;
+  font-size: 0.8rem;
+  color: var(--text-sub);
+  border-top: 1px dashed rgba(255,255,255,0.03);
+  padding-top: 0.65rem;
+}
+
+/* footer nhỏ */
+.login-footer {
+  margin-top: 1rem;
+  text-align: center;
+  color: rgba(226,232,240,0.25);
+  font-size: 0.8rem;
+}
+
+/* responsive giống devicecontrol media queries */
+@media (max-width: 1024px) {
+  .login-card {
+    width: 24rem;
+    padding: 1.25rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .login-card {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--accent);
+    border-radius: 0.85rem;
+    padding: 1rem;
+  }
+
+  .login-container {
+    padding: 1.25rem;
+  }
+}
+
+/* tinh chỉnh nhỏ cho touch */
+@media (hover: hover) {
+  .btn.primary:hover { transform: translateY(-2px); box-shadow: 0 18px 40px rgba(37,99,235,0.15); }
+}
+
+/* Global override: remove box-shadow from all form controls to enforce flat inputs */
+input, textarea, select, button {
+  box-shadow: none !important;
+}
+
